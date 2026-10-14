@@ -10,24 +10,19 @@
       </div>
 
       <nav class="menu">
-        <RouterLink to="/admin/agents" class="menu-item">
-          <span class="mi-icon">🤖</span><span>Agent 管理</span>
-        </RouterLink>
-        <RouterLink to="/admin/users" class="menu-item">
-          <span class="mi-icon">🧑</span><span>用户管理</span>
-        </RouterLink>
-        <RouterLink to="/admin/kb" class="menu-item">
-          <span class="mi-icon">📚</span><span>知识库管理</span>
-        </RouterLink>
-        <RouterLink to="/admin/tools" class="menu-item">
-          <span class="mi-icon">🧰</span><span>工具列表</span>
-        </RouterLink>
-        <RouterLink to="/admin/mcp" class="menu-item">
-          <span class="mi-icon">🔌</span><span>MCP 服务器</span>
-        </RouterLink>
-        <RouterLink to="/admin/models" class="menu-item">
-          <span class="mi-icon">🧠</span><span>模型配置</span>
-        </RouterLink>
+        <div v-for="g in menuGroups" :key="g.key" class="menu-group">
+          <button class="group-title" :class="{ open: isOpen(g.key) }" @click="toggle(g.key)">
+            <span class="gt-icon">{{ g.icon }}</span>
+            <span class="gt-label">{{ g.label }}</span>
+            <span class="gt-chev">▾</span>
+          </button>
+          <div v-show="isOpen(g.key)" class="sub-items">
+            <RouterLink v-for="item in g.items" :key="item.to" :to="item.to" class="menu-item">
+              <span class="mi-icon">{{ item.icon }}</span>
+              <span>{{ item.label }}</span>
+            </RouterLink>
+          </div>
+        </div>
       </nav>
 
       <div class="side-foot">
@@ -42,7 +37,58 @@
 </template>
 
 <script setup>
-// 左侧菜单布局：菜单项通过 router-link-active 自动高亮（含子路由）
+import { ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+
+const route = useRoute()
+
+// 一级菜单：智能体管理 / 系统管理；二级为具体管理页
+const menuGroups = [
+  {
+    key: 'agent',
+    label: '智能体管理',
+    icon: '🤖',
+    items: [
+      { to: '/admin/agents', label: 'Agent 管理', icon: '📋' },
+      { to: '/admin/models', label: '模型配置', icon: '🧠' },
+      { to: '/admin/kb', label: '知识库管理', icon: '📚' },
+    ],
+  },
+  {
+    key: 'system',
+    label: '系统管理',
+    icon: '⚙️',
+    items: [
+      { to: '/admin/users', label: '用户管理', icon: '🧑' },
+      { to: '/admin/tools', label: '工具列表', icon: '🧰' },
+      { to: '/admin/mcp', label: 'MCP 服务器', icon: '🔌' },
+    ],
+  },
+]
+
+// 含当前路由的分组自动展开，其余可手动折叠
+const openGroups = ref(new Set())
+watch(
+  () => route.path,
+  (p) => {
+    const g = menuGroups.find((x) => x.items.some((i) => p.startsWith(i.to)))
+    if (g) {
+      const s = new Set(openGroups.value)
+      s.add(g.key)
+      openGroups.value = s
+    }
+  },
+  { immediate: true },
+)
+function isOpen(key) {
+  return openGroups.value.has(key)
+}
+function toggle(key) {
+  const s = new Set(openGroups.value)
+  if (s.has(key)) s.delete(key)
+  else s.add(key)
+  openGroups.value = s
+}
 </script>
 
 <style scoped>
@@ -71,17 +117,34 @@
 }
 .title { font-weight: 700; font-size: 15px; }
 .subtitle { font-size: 11px; color: var(--muted); }
-.menu { display: flex; flex-direction: column; gap: 4px; }
+
+.menu { display: flex; flex-direction: column; gap: 2px; }
+.menu-group { margin-bottom: 2px; }
+.group-title {
+  width: 100%;
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border: none; border-radius: 9px;
+  background: transparent; color: var(--text);
+  font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit;
+}
+.group-title:hover { background: var(--panel-hover); }
+.gt-icon { font-size: 15px; width: 18px; text-align: center; }
+.gt-label { flex: 1; text-align: left; }
+.gt-chev { font-size: 11px; color: var(--muted); transition: transform 0.15s; }
+.group-title:not(.open) .gt-chev { transform: rotate(-90deg); }
+
+.sub-items { display: flex; flex-direction: column; gap: 2px; padding: 2px 0 4px 8px; }
 .menu-item {
   display: flex; align-items: center; gap: 10px;
-  padding: 10px 12px; border-radius: 9px;
-  color: var(--text); text-decoration: none; font-size: 14px;
+  padding: 9px 12px; border-radius: 9px;
+  color: var(--text); text-decoration: none; font-size: 13px;
   cursor: pointer;
 }
 .menu-item:hover { background: var(--panel-hover); }
 .menu-item.router-link-active { background: var(--accent); color: #fff; }
 .menu-item.router-link-active .mi-icon { filter: none; }
 .mi-icon { font-size: 15px; width: 18px; text-align: center; }
+
 .side-foot { margin-top: auto; padding-top: 16px; border-top: 1px solid var(--border); }
 .back {
   display: block; padding: 10px 12px; border-radius: 9px;
