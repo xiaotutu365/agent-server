@@ -22,6 +22,9 @@
         <RouterLink to="/admin/tools" class="menu-item">
           <span class="mi-icon">🧰</span><span>工具列表</span>
         </RouterLink>
+        <RouterLink to="/admin/mcp" class="menu-item">
+          <span class="mi-icon">🔌</span><span>MCP 服务器</span>
+        </RouterLink>
         <RouterLink to="/admin/models" class="menu-item">
           <span class="mi-icon">🧠</span><span>模型配置</span>
         </RouterLink>
