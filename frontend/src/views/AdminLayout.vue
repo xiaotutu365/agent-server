@@ -52,6 +52,8 @@ const menuGroups = [
       { to: '/admin/agents', label: 'Agent 管理', icon: '📋' },
       { to: '/admin/models', label: '模型配置', icon: '🧠' },
       { to: '/admin/kb', label: '知识库管理', icon: '📚' },
+      { to: '/admin/tools', label: '工具列表', icon: '🧰' },
+      { to: '/admin/mcp', label: 'MCP 服务器', icon: '🔌' },
     ],
   },
   {
@@ -60,8 +62,6 @@ const menuGroups = [
     icon: '⚙️',
     items: [
       { to: '/admin/users', label: '用户管理', icon: '🧑' },
-      { to: '/admin/tools', label: '工具列表', icon: '🧰' },
-      { to: '/admin/mcp', label: 'MCP 服务器', icon: '🔌' },
     ],
   },
 ]
