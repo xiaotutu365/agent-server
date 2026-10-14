@@ -33,6 +33,9 @@ from agent.model_store import (
 from agent.auth import (
     init_users_table, seed_admin, verify_login, create_user, list_users,
     delete_user, encode_token, get_current_user, require_admin,
+    init_roles_departments,
+    list_roles, create_role, delete_role,
+    list_departments, create_department, delete_department, update_user,
 )
 from kb.api import router as kb_router
 
@@ -52,6 +55,7 @@ async def lifespan(app: FastAPI):
     REBUILD_LOCK = asyncio.Lock()
     AGENT_CACHE_LOCK = asyncio.Lock()
     await init_users_table()
+    await init_roles_departments()
     await seed_admin()
     cfg = await load_default_config()
     AGENT = await build_agent(cfg)
@@ -504,21 +508,44 @@ class CreateUserRequest(BaseModel):
     username: str
     password: str
     role: str = "user"
+    role_id: str | None = None
+    department_id: str | None = None
+
+
+class UpdateUserRequest(BaseModel):
+    role: str | None = None
+    role_id: str | None = None
+    department_id: str | None = None
+    password: str | None = None
 
 
 @app.get("/api/admin/users")
 async def admin_list_users(_: dict = Depends(require_admin)):
-    """用户列表（不含密码哈希）。"""
+    """用户列表（不含密码哈希；含 role_name / department_name 关联名）。"""
     return {"users": await list_users()}
 
 
 @app.post("/api/admin/users")
 async def admin_create_user(body: CreateUserRequest, _: dict = Depends(require_admin)):
-    """管理员创建用户（角色 admin / user）。"""
+    """管理员创建用户（关联 role_id / department_id）。"""
     try:
-        u = await create_user(body.username, body.password, body.role)
+        u = await create_user(
+            body.username, body.password, body.role, body.role_id, body.department_id,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    return {"user": u}
+
+
+@app.put("/api/admin/users/{uid}")
+async def admin_update_user(uid: str, body: UpdateUserRequest, _: dict = Depends(require_admin)):
+    """更新用户角色 / 部门 / 密码。"""
+    try:
+        u = await update_user(uid, body.role, body.role_id, body.department_id, body.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not u:
+        raise HTTPException(status_code=404, detail="用户不存在")
     return {"user": u}
 
 
@@ -534,6 +561,74 @@ async def admin_delete_user(uid: str, current: dict = Depends(require_admin)):
     if not ok:
         raise HTTPException(status_code=404, detail="用户不存在")
     return {"status": "deleted", "id": uid}
+
+
+# ---------- 后台：角色管理（需管理员） ----------
+
+class RoleRequest(BaseModel):
+    name: str
+    key: str
+    description: str = ""
+
+
+@app.get("/api/admin/roles")
+async def admin_list_roles(_: dict = Depends(require_admin)):
+    """角色列表。"""
+    return {"roles": await list_roles()}
+
+
+@app.post("/api/admin/roles")
+async def admin_create_role(body: RoleRequest, _: dict = Depends(require_admin)):
+    """新增角色（key 唯一，作为权限标识）。"""
+    try:
+        r = await create_role(body.name, body.key, body.description)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"role": r}
+
+
+@app.delete("/api/admin/roles/{rid}")
+async def admin_delete_role(rid: str, _: dict = Depends(require_admin)):
+    """删除角色（内置 admin/user 不可删；其下用户回退为普通用户）。"""
+    try:
+        ok = await delete_role(rid)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not ok:
+        raise HTTPException(status_code=404, detail="角色不存在")
+    return {"status": "deleted", "id": rid}
+
+
+# ---------- 后台：部门管理（需管理员） ----------
+
+class DepartmentRequest(BaseModel):
+    name: str
+    description: str = ""
+
+
+@app.get("/api/admin/departments")
+async def admin_list_departments(_: dict = Depends(require_admin)):
+    """部门列表。"""
+    return {"departments": await list_departments()}
+
+
+@app.post("/api/admin/departments")
+async def admin_create_department(body: DepartmentRequest, _: dict = Depends(require_admin)):
+    """新增部门。"""
+    try:
+        d = await create_department(body.name, body.description)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"department": d}
+
+
+@app.delete("/api/admin/departments/{did}")
+async def admin_delete_department(did: str, _: dict = Depends(require_admin)):
+    """删除部门（其下用户 department_id 置空）。"""
+    ok = await delete_department(did)
+    if not ok:
+        raise HTTPException(status_code=404, detail="部门不存在")
+    return {"status": "deleted", "id": did}
 
 
 if __name__ == "__main__":

@@ -62,6 +62,8 @@ const menuGroups = [
     icon: '⚙️',
     items: [
       { to: '/admin/users', label: '用户管理', icon: '🧑' },
+      { to: '/admin/roles', label: '角色管理', icon: '🎭' },
+      { to: '/admin/departments', label: '部门管理', icon: '🏢' },
     ],
   },
 ]

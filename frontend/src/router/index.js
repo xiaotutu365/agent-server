@@ -4,6 +4,8 @@ import AdminLayout from '../views/AdminLayout.vue'
 import AgentListView from '../views/AgentListView.vue'
 import AgentEditView from '../views/AgentEditView.vue'
 import UserListView from '../views/UserListView.vue'
+import RoleManagementView from '../views/RoleManagementView.vue'
+import DepartmentManagementView from '../views/DepartmentManagementView.vue'
 import KnowledgeBase from '../components/KnowledgeBase.vue'
 import LoginView from '../views/LoginView.vue'
 import LangGraphLabView from '../views/LangGraphLabView.vue'
@@ -33,6 +35,8 @@ const router = createRouter({
         { path: 'agents/new', name: 'agent-new', component: AgentEditView },
         { path: 'agents/:id', name: 'agent-edit', component: AgentEditView },
         { path: 'users', name: 'user-list', component: UserListView },
+        { path: 'roles', name: 'role-list', component: RoleManagementView },
+        { path: 'departments', name: 'dept-list', component: DepartmentManagementView },
         { path: 'kb', name: 'kb-admin', component: KnowledgeBase },
         { path: 'tools', name: 'tool-list', component: ToolsView },
         { path: 'mcp', name: 'mcp-servers', component: McpServersView },
