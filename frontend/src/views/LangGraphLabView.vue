@@ -336,6 +336,8 @@ function tagOf(e) {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  max-width: 1120px;
+  margin: 0 auto;
 }
 .lab-head {
   display: flex;

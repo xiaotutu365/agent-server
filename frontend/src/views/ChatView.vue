@@ -417,6 +417,8 @@ onMounted(async () => {
   flex: 1;
   display: flex;
   min-height: 0;
+  max-width: 1120px;
+  margin: 0 auto;
 }
 .chat-col {
   flex: 1;

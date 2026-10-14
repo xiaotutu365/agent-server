@@ -78,8 +78,7 @@ onMounted(async () => {
   height: 100vh;
   display: flex;
   flex-direction: column;
-  max-width: 1120px;
-  margin: 0 auto;
+  width: 100%;
   background: var(--bg);
 }
 

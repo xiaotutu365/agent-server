@@ -255,6 +255,8 @@ function reset() {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  max-width: 1120px;
+  margin: 0 auto;
 }
 .eda-head p { margin: 6px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; max-width: 880px; }
 .eda-head code { font-family: var(--mono); background: var(--code-bg); padding: 1px 6px; border-radius: 4px; font-size: 0.9em; }

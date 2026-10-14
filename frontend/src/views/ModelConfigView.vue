@@ -218,7 +218,7 @@ onMounted(load)
 </script>
 
 <style scoped>
-.list-page { padding: 24px 28px; max-width: 1000px; margin: 0 auto; width: 100%; }
+.list-page { padding: 24px 28px; max-width: 100%; margin: 0 auto; width: 100%; }
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .page-head h2 { margin: 0 0 4px; font-size: 18px; }
 .hint { color: var(--muted); font-size: 13px; margin: 0; max-width: 680px; }
