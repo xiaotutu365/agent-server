@@ -1,0 +1,23 @@
+deepagents>=0.7.23
+langchain>=1.4.4
+langchain-openai>=1.7.0
+langchain-core>=1.6.9
+langgraph-checkpoint-sqlite>=3.1.1
+fastapi>=0.143.0
+uvicorn[standard]>=0.54.0
+python-dotenv>=1.2.4
+tavily-python>=0.8.5
+
+# 知识库 RAG 子系统
+qdrant-client>=1.13
+langchain-qdrant>=0.2
+fastembed>=0.3
+langchain-text-splitters>=0.3
+pypdf>=5
+python-docx>=1.1
+python-multipart>=0.0.20
+pytest>=8
+
+# MCP 客户端：消费外部 MCP 服务器（stdio / SSE / Streamable HTTP）提供的工具
+langchain-mcp-adapters>=0.1.0
+mcp>=1.0.0
