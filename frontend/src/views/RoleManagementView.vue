@@ -137,7 +137,7 @@ async function remove(r) {
 .page-head h2 { margin: 0 0 4px; font-size: 18px; }
 .hint { color: var(--muted); font-size: 13px; margin: 0; max-width: 720px; }
 .primary { flex: none; border: none; background: var(--accent); color: #fff; padding: 10px 18px; border-radius: 9px; cursor: pointer; font-size: 14px; font-weight: 600; }
-.err { background: #fde8e8; color: #d93025; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+.err { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-top: 16px; }
 .form .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
 .form .field input { border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; font-family: inherit; font-size: 14px; background: var(--bg); color: var(--text); }
@@ -155,6 +155,6 @@ async function remove(r) {
 .muted { color: var(--muted); }
 .op { white-space: nowrap; }
 .link { border: none; background: transparent; color: var(--accent); cursor: pointer; font-size: 13px; }
-.link.danger { color: #d93025; }
+.link.danger { color: var(--destructive); }
 .empty { text-align: center; color: var(--muted); padding: 24px 0; }
 </style>

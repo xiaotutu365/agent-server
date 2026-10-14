@@ -111,7 +111,7 @@ async function toggle(t) {
 .page-head h2 { margin: 0 0 4px; font-size: 18px; }
 .hint { color: var(--muted); font-size: 13px; margin: 0; max-width: 720px; }
 .hint b { color: var(--text); }
-.err { background: #fde8e8; color: #d93025; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+.err { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
 
 .group-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 16px; }
 .group-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--code-bg); }

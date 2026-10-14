@@ -129,7 +129,7 @@ function fmt(iso) {
   flex: none; border: none; background: var(--accent); color: #fff;
   padding: 10px 18px; border-radius: 9px; cursor: pointer; font-size: 14px; font-weight: 600;
 }
-.err { background: #fde8e8; color: #d93025; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+.err { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tbl th, .tbl td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border); }
@@ -142,7 +142,7 @@ function fmt(iso) {
   display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 20px;
   background: var(--code-bg); color: var(--muted); margin-right: 6px;
 }
-.tag.on { background: #e6f4ec; color: #22a06b; }
+.tag.on { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
 .badge-def {
   display: inline-block; font-size: 11px; padding: 2px 10px; border-radius: 20px;
   background: var(--accent); color: #fff;
@@ -152,6 +152,6 @@ function fmt(iso) {
   border: none; background: transparent; color: var(--accent); cursor: pointer;
   font-size: 13px; padding: 0 8px 0 0; margin-right: 4px;
 }
-.link.danger { color: #d93025; }
+.link.danger { color: var(--destructive); }
 .empty { text-align: center; color: var(--muted); padding: 30px 0; }
 </style>

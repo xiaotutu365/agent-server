@@ -300,10 +300,10 @@ function reset() {
 .ov-val.status { font-size: 18px; }
 .ov-val.pdk { font-size: 20px; }
 .ov-sub { font-size: 12px; margin-top: 4px; color: var(--muted); }
-.ov-card.ok { border-color: #22a06b; }
-.ov-card.ok .ov-val, .ov-card.ok .ov-sub { color: #22a06b; }
-.ov-card.bad { border-color: #d93025; }
-.ov-card.bad .ov-val, .ov-card.bad .ov-sub { color: #d93025; }
+.ov-card.ok { border-color: var(--success); }
+.ov-card.ok .ov-val, .ov-card.ok .ov-sub { color: var(--success); }
+.ov-card.bad { border-color: var(--destructive); }
+.ov-card.bad .ov-val, .ov-card.bad .ov-sub { color: var(--destructive); }
 
 .pipeline { display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap; }
 .stage {
@@ -311,12 +311,12 @@ function reset() {
   padding: 14px; background: var(--panel); display: flex; flex-direction: column; gap: 8px;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
-.stage.on { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(79,110,247,0.15); }
+.stage.on { border-color: var(--primary); outline: 2px solid color-mix(in srgb, var(--primary) 30%, transparent); outline-offset: 2px; }
 .stage.done { border-color: var(--border); }
 .stage-head { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 14px; color: var(--text); }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); flex: none; }
 .stage.on .dot { background: var(--accent); animation: pulse 1s infinite; }
-.stage.done .dot { background: #22a06b; }
+.stage.done .dot { background: var(--success); }
 .stage-desc { font-size: 12px; color: var(--muted); }
 .stage-out {
   background: var(--code-bg); border-radius: 8px; padding: 10px; font-size: 12px;

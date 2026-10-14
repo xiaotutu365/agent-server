@@ -35,6 +35,28 @@ def set_user_ctx(user_id: Any, role: str) -> None:
     user_ctx_var.set({"user_id": str(user_id), "role": role})
 
 
+def _coerce_text(content) -> str:
+    """把 MCP 工具返回的内容（可能是 content 块列表）规整为纯文本字符串。
+
+    新版 langchain-mcp-adapters 直接返回 MCP CallToolResult 的 content 列表
+    （[{'type':'text','text':...}]），这里统一压平成字符串，与内置工具返回形态一致。
+    """
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, dict):
+                if item.get("type") == "text":
+                    parts.append(item.get("text", ""))
+                else:
+                    parts.append(str(item))
+            else:
+                parts.append(str(item))
+        return "".join(parts)
+    return str(content)
+
+
 def _server_entry(s: dict) -> dict:
     """把单个服务器描述转换为 MultiServerMCPClient 的连接配置项。"""
     entry: dict[str, Any] = {"transport": s.get("transport", "stdio")}
@@ -51,7 +73,7 @@ def _server_entry(s: dict) -> dict:
 
 
 def _wrap_tool(tool, server_name: str, allow_roles: list | None):
-    """按 allow_roles 包装 MCP 工具：越权时拒绝，否则委托原工具执行。"""
+    """按 allow_roles 包装 MCP 工具：越权时拒绝，否则委托原工具执行并规整返回。"""
 
     schema = getattr(tool, "args_schema", None)
     if not allow_roles or schema is None:
@@ -65,7 +87,8 @@ def _wrap_tool(tool, server_name: str, allow_roles: list | None):
                 f"⛔ 无权限：MCP 服务器「{server_name}」的工具仅允许角色 "
                 f"{allow_roles} 调用，当前角色为 {role}。"
             )
-        return await tool.ainvoke(kwargs)
+        result = await tool.ainvoke(kwargs)
+        return _coerce_text(result)
 
     return StructuredTool.from_function(
         name=tool.name,

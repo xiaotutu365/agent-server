@@ -156,6 +156,44 @@ def _truncate(text: str, limit: int = 2000) -> str:
     return text if len(text) <= limit else text[:limit] + "...(截断)"
 
 
+def _extract_interrupt_requests(state) -> list:
+    """从 LangGraph state（或兼容的测试桩）中提取 HITL 中断请求列表。
+
+    真实 state 形态：state.tasks[].interrupts[].value（即 HumanInTheLoopMiddleware
+    构造的 HITLRequest：含 action_requests / review_configs）。同时兼容以
+    顶层 .interrupts / {"interrupts": [...]} 直接暴露的中断列表（测试桩）。
+    """
+    if state is None:
+        return []
+    # 真实 state：中断挂在 tasks 之下
+    tasks = getattr(state, "tasks", None)
+    if tasks is None and isinstance(state, dict):
+        tasks = state.get("tasks")
+    candidates = []
+    if tasks:
+        for task in tasks:
+            interrupts = getattr(task, "interrupts", None)
+            if interrupts is None and isinstance(task, dict):
+                interrupts = task.get("interrupts")
+            if interrupts:
+                candidates.extend(interrupts)
+    else:
+        # 兼容顶层直接暴露 interrupts 的形态（测试桩）
+        interrupts = getattr(state, "interrupts", None)
+        if interrupts is None and isinstance(state, dict):
+            interrupts = state.get("interrupts")
+        if interrupts:
+            candidates.extend(interrupts)
+    requests = []
+    for intr in candidates:
+        val = getattr(intr, "value", None)
+        if val is None and isinstance(intr, dict):
+            val = intr.get("value")
+        if val is not None:
+            requests.append(val)
+    return requests
+
+
 @app.get("/api/health")
 async def health():
     return {"status": "ok", "model": os.getenv("MODEL_NAME", "")}
@@ -325,16 +363,11 @@ async def chat_stream(req: ChatRequest, user: dict = Depends(get_current_user)):
         except Exception as exc:  # noqa: BLE001
             yield sse("error", {"message": str(exc)})
         else:
-            # 检测图是否因 HITL 挂起：从 state.tasks 提取每个 interrupt 的 value
+            # 检测图是否因 HITL 挂起：从 state 提取每个 interrupt 的 value
             # （即 HumanInTheLoopMiddleware 构造的 HITLRequest：含 action_requests/review_configs）
             try:
                 state = await agent.aget_state(config)
-                interrupts = []
-                for task in getattr(state, "tasks", []) or []:
-                    for intr in getattr(task, "interrupts", []) or []:
-                        val = getattr(intr, "value", None)
-                        if val is not None:
-                            interrupts.append(val)
+                interrupts = _extract_interrupt_requests(state)
                 if interrupts:
                     yield sse("interrupt", {"requests": interrupts})
             except Exception as exc:  # noqa: BLE001
@@ -490,7 +523,10 @@ async def admin_create_model(body: dict, _: dict = Depends(require_admin)):
 @app.put("/api/admin/models/{model_id}")
 async def admin_update_model(model_id: str, body: dict, _: dict = Depends(require_admin)):
     """更新模型配置。"""
-    m = await update_model(model_id, body)
+    try:
+        m = await update_model(model_id, body)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     if not m:
         raise HTTPException(status_code=404, detail="模型不存在")
     return {"model": m}
@@ -500,6 +536,29 @@ async def admin_update_model(model_id: str, body: dict, _: dict = Depends(requir
 async def admin_delete_model(model_id: str, _: dict = Depends(require_admin)):
     """删除模型配置。"""
     return await delete_model(model_id)
+
+
+@app.post("/api/admin/models/test")
+async def admin_test_model_body(body: dict, _: dict = Depends(require_admin)):
+    """按提交的配置（未保存也可）探测连通性。"""
+    from agent.model_store import test_model_connection
+
+    return await test_model_connection(body)
+
+
+@app.post("/api/admin/models/{model_id}/test")
+async def admin_test_model_id(model_id: str, _: dict = Depends(require_admin)):
+    """按已保存的配置（含密钥）探测连通性。"""
+    from agent.model_store import get_model, test_model_connection
+
+    m = await get_model(model_id)
+    if not m:
+        raise HTTPException(status_code=404, detail="模型不存在")
+    cfg = {
+        "type": m.get("type"), "base_url": m.get("base_url"), "model": m.get("model"),
+        "dim": m.get("dim") or 0, "api_key": m.get("api_key") or "", "extra": m.get("extra") or {},
+    }
+    return await test_model_connection(cfg)
 
 
 # ---------- 后台：用户管理（需管理员） ----------

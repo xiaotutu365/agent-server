@@ -39,3 +39,17 @@ export async function updateModel(id, body) {
 export async function deleteModel(id) {
   return jsonFetch(`/api/admin/models/${encodeURIComponent(id)}`, { method: 'DELETE' })
 }
+
+/** 按提交的配置（未保存也可）探测连通性。 */
+export async function testModel(cfg) {
+  return jsonFetch('/api/admin/models/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cfg),
+  })
+}
+
+/** 按已保存的配置（含密钥）探测连通性。 */
+export async function testModelById(id) {
+  return jsonFetch(`/api/admin/models/${encodeURIComponent(id)}/test`, { method: 'POST' })
+}

@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import aiosqlite
 
-from agent.deep_agent import DB_PATH, SYSTEM_PROMPT
+from agent.deep_agent import DB_PATH, SYSTEM_PROMPT, INTERRUPT_TOOLS
 from agent.tool_registry import ALL_TOOL_NAMES
 
 DEFAULT_CONFIG = {
@@ -20,10 +20,7 @@ DEFAULT_CONFIG = {
     "model_name": os.getenv("MODEL_NAME", "deepseek-flash"),
     "temperature": 0.3,
     "tools_enabled": list(ALL_TOOL_NAMES),
-    "hitl": {
-        "create_work_order": ["approve", "reject"],
-        "ask_human": ["respond"],
-    },
+    "hitl": dict(INTERRUPT_TOOLS),
     "memory_enabled": True,
     "kb_enabled": True,
     "mcp_servers": [],  # 外部 MCP 服务器列表（见 agent/mcp_tools.py）

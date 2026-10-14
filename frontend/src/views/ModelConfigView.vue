@@ -40,6 +40,7 @@
           <span class="badge" :class="m.type">{{ typeLabel(m.type) }}</span>
           <span v-if="m.is_default" class="star" title="默认">★ 默认</span>
           <span class="spacer"></span>
+          <button class="mini" :disabled="rowTests[m.id]?.loading" @click="testRow(m)">测试</button>
           <button class="mini" @click="startEdit(m)">编辑</button>
           <button class="mini danger" @click="del(m)">删除</button>
         </div>
@@ -47,8 +48,13 @@
           <span>model: {{ m.model || '—' }}</span>
           <span>base_url: {{ m.base_url || '—' }}</span>
           <span v-if="m.type === 'embedding'">dim: {{ m.dim || '—' }}</span>
+          <span v-if="m.type === 'llm' && m.extra && m.extra.temperature !== undefined">temp: {{ m.extra.temperature }}</span>
+          <span v-if="m.type === 'rerank' && m.extra && m.extra.top_n !== undefined">top_n: {{ m.extra.top_n }}</span>
           <span v-if="m.api_key">api_key: ••••••••</span>
           <span v-else>api_key: —</span>
+        </div>
+        <div v-if="rowTests[m.id] && rowTests[m.id].detail" class="m-test" :class="rowTests[m.id].ok ? 'ok' : 'fail'">
+          {{ rowTests[m.id].ok ? '✓' : '✗' }} {{ rowTests[m.id].detail }}<span v-if="rowTests[m.id].latency_ms"> · {{ rowTests[m.id].latency_ms }}ms</span>
         </div>
       </div>
     </div>
@@ -66,13 +72,15 @@
         </label>
 
         <label class="fld">
-          <span>名称</span>
-          <input v-model="form.name" placeholder="如 default-llm" />
+          <span>名称 <i class="req">*</i></span>
+          <input v-model="form.name" :class="{ invalid: errors.name }" @input="clearErr('name')" placeholder="如 default-llm" />
+          <div class="fld-err" v-if="errors.name">{{ errors.name }}</div>
         </label>
 
         <label class="fld">
-          <span>Base URL</span>
-          <input v-model="form.base_url" :placeholder="placeholderBase" />
+          <span>Base URL <i class="req">*</i></span>
+          <input v-model="form.base_url" :class="{ invalid: errors.base_url }" @input="clearErr('base_url')" :placeholder="placeholderBase" />
+          <div class="fld-err" v-if="errors.base_url">{{ errors.base_url }}</div>
         </label>
 
         <label class="fld">
@@ -81,13 +89,15 @@
         </label>
 
         <label class="fld">
-          <span>模型名</span>
-          <input v-model="form.model" :placeholder="placeholderModel" />
+          <span>模型名 <i class="req">*</i></span>
+          <input v-model="form.model" :class="{ invalid: errors.model }" @input="clearErr('model')" :placeholder="placeholderModel" />
+          <div class="fld-err" v-if="errors.model">{{ errors.model }}</div>
         </label>
 
         <label class="fld" v-if="form.type === 'embedding'">
-          <span>向量维度 dim</span>
-          <input v-model.number="form.dim" type="number" min="0" step="1" placeholder="如 1536" />
+          <span>向量维度 dim <i class="req">*</i></span>
+          <input v-model.number="form.dim" type="number" min="0" step="1" :class="{ invalid: errors.dim }" @input="clearErr('dim')" placeholder="如 1536" />
+          <div class="fld-err" v-if="errors.dim">{{ errors.dim }}</div>
         </label>
 
         <label class="fld check">
@@ -95,10 +105,33 @@
           <span>设为该类型默认（对话/检索将优先使用）</span>
         </label>
 
+        <div class="fld-sec" v-if="form.type === 'llm'">
+          <div class="sec-title">高级参数（大模型）</div>
+          <div class="grid2">
+            <label class="fld"><span>Temperature 温度</span><input v-model="form.extra.temperature" type="number" step="0.1" min="0" max="2" placeholder="0.3" /></label>
+            <label class="fld"><span>Top P</span><input v-model="form.extra.top_p" type="number" step="0.05" min="0" max="1" placeholder="1.0" /></label>
+            <label class="fld"><span>Max Tokens 最大输出</span><input v-model="form.extra.max_tokens" type="number" min="1" step="1" placeholder="模型默认" /></label>
+            <label class="fld"><span>Timeout 超时(秒)</span><input v-model="form.extra.timeout" type="number" min="1" step="1" placeholder="默认" /></label>
+            <label class="fld"><span>Frequency Penalty 频率惩罚</span><input v-model="form.extra.frequency_penalty" type="number" step="0.1" min="-2" max="2" placeholder="0" /></label>
+            <label class="fld"><span>Presence Penalty 存在惩罚</span><input v-model="form.extra.presence_penalty" type="number" step="0.1" min="-2" max="2" placeholder="0" /></label>
+          </div>
+          <label class="fld"><span>Stop 停止词（逗号分隔）</span><input v-model="form.extra.stop" placeholder="如：stop1, stop2" /></label>
+        </div>
+
+        <div class="fld-sec" v-if="form.type === 'rerank'">
+          <div class="sec-title">高级参数（重排）</div>
+          <label class="fld"><span>Top N 返回条数</span><input v-model="form.extra.top_n" type="number" min="1" step="1" placeholder="如 5" /></label>
+        </div>
+
         <div v-if="formError" class="err" style="margin-top: 4px;">{{ formError }}</div>
+
+        <div v-if="formTest" class="test-result" :class="formTest.ok ? 'ok' : 'fail'">
+          {{ formTest.ok ? '✓' : '✗' }} {{ formTest.detail }}<span v-if="formTest.latency_ms"> · {{ formTest.latency_ms }}ms</span>
+        </div>
 
         <div class="modal-actions">
           <button class="ghost" @click="cancel">取消</button>
+          <button class="ghost" :disabled="testing || !form.model" @click="testForm">测试连接</button>
           <button class="primary" :disabled="saving" @click="save">
             {{ saving ? '保存中…' : '保存' }}
           </button>
@@ -110,7 +143,7 @@
 
 <script setup>
 import { onMounted, ref, reactive, computed } from 'vue'
-import { listModels, createModel, updateModel, deleteModel, MODEL_TYPES } from '../api/models'
+import { listModels, createModel, updateModel, deleteModel, testModel, testModelById, MODEL_TYPES } from '../api/models'
 
 const tabs = [{ value: 'all', label: '全部' }, ...MODEL_TYPES]
 
@@ -123,8 +156,14 @@ const counts = reactive({ llm: 0, embedding: 0, rerank: 0 })
 const editing = ref(false)
 const saving = ref(false)
 const formError = ref('')
+const testing = ref(false)
+const formTest = ref(null)
+const rowTests = reactive({})
+const errors = reactive({})
+function clearErr(k) { errors[k] = '' }
 const blank = () => ({
   id: null, type: 'llm', name: '', base_url: '', api_key: '', model: '', dim: 0, is_default: false,
+  extra: { temperature: '', top_p: '', max_tokens: '', timeout: '', frequency_penalty: '', presence_penalty: '', stop: '', top_n: '' },
 })
 const form = reactive(blank())
 
@@ -163,15 +202,23 @@ function setFilter(v) {
 function startCreate() {
   Object.assign(form, blank())
   formError.value = ''
+  errors.name = errors.base_url = errors.model = errors.dim = ''
   editing.value = true
 }
 
 function startEdit(m) {
+  const ex = m.extra || {}
   Object.assign(form, {
     id: m.id, type: m.type, name: m.name, base_url: m.base_url, api_key: '',
     model: m.model, dim: m.dim || 0, is_default: m.is_default,
+    extra: {
+      temperature: ex.temperature ?? '', top_p: ex.top_p ?? '', max_tokens: ex.max_tokens ?? '',
+      timeout: ex.timeout ?? '', frequency_penalty: ex.frequency_penalty ?? '',
+      presence_penalty: ex.presence_penalty ?? '', stop: ex.stop ?? '', top_n: ex.top_n ?? '',
+    },
   })
   formError.value = ''
+  errors.name = errors.base_url = errors.model = errors.dim = ''
   editing.value = true
 }
 
@@ -184,12 +231,58 @@ function cancel() {
   formError.value = ''
 }
 
+function cleanExtra() {
+  const out = {}
+  const e = form.extra
+  for (const k of ['temperature', 'top_p', 'max_tokens', 'timeout', 'frequency_penalty', 'presence_penalty', 'stop', 'top_n']) {
+    const v = e[k]
+    if (v !== '' && v !== null && v !== undefined) out[k] = v
+  }
+  return out
+}
+
+async function testForm() {
+  testing.value = true
+  formTest.value = null
+  try {
+    formTest.value = await testModel({
+      type: form.type, base_url: form.base_url, api_key: form.api_key,
+      model: form.model, dim: form.dim || 0, extra: cleanExtra(),
+    })
+  } catch (e) {
+    formTest.value = { ok: false, detail: e.message, latency_ms: null }
+  } finally {
+    testing.value = false
+  }
+}
+
+async function testRow(m) {
+  rowTests[m.id] = { loading: true, ok: null, detail: '' }
+  try {
+    const r = await testModelById(m.id)
+    rowTests[m.id] = { loading: false, ok: r.ok, detail: r.detail, latency_ms: r.latency_ms }
+  } catch (e) {
+    rowTests[m.id] = { loading: false, ok: false, detail: e.message, latency_ms: null }
+  }
+}
+
 async function save() {
   saving.value = true
   formError.value = ''
+  // 必填校验：名称 / 接口地址 / 模型名 为通用必填；嵌入模型还需维度（错误贴在各输入框下方）
+  errors.name = errors.base_url = errors.model = errors.dim = ''
+  let bad = false
+  if (!form.name.trim()) { errors.name = '请填写模型名称'; bad = true }
+  if (!form.base_url.trim()) { errors.base_url = '请填写接口地址(base_url)'; bad = true }
+  if (!form.model.trim()) { errors.model = '请填写模型(model)'; bad = true }
+  if (form.type === 'embedding' && !(Number(form.dim) > 0)) {
+    errors.dim = '嵌入模型请填写维度(dim)，且需大于 0'; bad = true
+  }
+  if (bad) { saving.value = false; return }
   const body = {
-    type: form.type, name: form.name, base_url: form.base_url, model: form.model,
+    type: form.type, name: form.name.trim(), base_url: form.base_url.trim(), model: form.model.trim(),
     dim: form.dim || 0, is_default: !!form.is_default,
+    extra: cleanExtra(),
   }
   if (form.api_key) body.api_key = form.api_key
   try {
@@ -225,7 +318,7 @@ onMounted(load)
 .hint b { color: var(--text); }
 .primary { border: none; background: var(--accent); color: #fff; padding: 9px 16px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 600; }
 .primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.err { background: #fde8e8; color: #d93025; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+.err { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
 .muted { color: var(--muted); font-size: 13px; }
 
 .tabs { display: flex; gap: 8px; margin-bottom: 14px; }
@@ -243,22 +336,35 @@ onMounted(load)
 .m-name { font-weight: 600; font-size: 14px; }
 .badge { font-size: 11px; padding: 2px 9px; border-radius: 20px; color: #fff; }
 .badge.llm { background: #4f6ef7; }
-.badge.embedding { background: #22a06b; }
+.badge.embedding { background: var(--success); }
 .badge.rerank { background: #b8860b; }
 .star { font-size: 12px; color: #f5a623; }
 .spacer { flex: 1; }
 .mini { border: 1px solid var(--border); background: transparent; color: var(--muted); padding: 4px 12px; border-radius: 7px; cursor: pointer; font-size: 12px; }
-.mini.danger { color: #d93025; }
+.mini.danger { color: var(--destructive); }
 .m-meta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 12px; color: var(--muted); }
+.m-test { margin-top: 8px; font-size: 12px; padding: 6px 10px; border-radius: 8px; display: inline-block; }
+.m-test.ok { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
+.m-test.fail { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); }
+.test-result { margin-top: 6px; padding: 8px 12px; border-radius: 8px; font-size: 13px; }
+.test-result.ok { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
+.test-result.fail { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); }
 
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 22px; width: 440px; max-width: 92vw; }
 .modal h3 { margin: 0 0 16px; font-size: 16px; }
 .fld { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
 .fld > span { font-size: 12px; color: var(--muted); }
+.req { color: var(--destructive); font-style: normal; margin-left: 2px; }
+.fld-err { font-size: 12px; color: var(--destructive); margin-top: 4px; }
+.fld input.invalid, .fld select.invalid { border-color: var(--destructive); }
 .fld input, .fld select { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--bg); color: var(--text); font-size: 13px; font-family: inherit; }
 .fld.check { flex-direction: row; align-items: center; gap: 8px; }
 .fld.check > span { font-size: 13px; color: var(--text); }
+.fld-sec { border-top: 1px dashed var(--border); margin-top: 4px; padding-top: 12px; }
+.sec-title { font-size: 12px; color: var(--muted); margin-bottom: 10px; font-weight: 600; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+.grid2 .fld { margin-bottom: 10px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
 .ghost { border: 1px solid var(--border); background: transparent; color: var(--text); padding: 9px 16px; border-radius: 9px; cursor: pointer; font-size: 13px; }
 .mono { font-family: var(--mono); }

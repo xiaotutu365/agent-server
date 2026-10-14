@@ -63,6 +63,13 @@ defineEmits(['new', 'select', 'remove'])
   visibility: hidden;
 }
 .item:hover .del { visibility: visible; }
-.del:hover { color: #d93025; background: rgba(217, 48, 37, 0.1); }
+.item:focus-within .del { visibility: visible; }
+.del:hover { color: var(--destructive); background: color-mix(in srgb, var(--destructive) 12%, transparent); }
 .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 20px 0; }
+
+@media (max-width: 760px) {
+  .sidebar { width: 100%; max-height: 180px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .list { min-height: 0; }
+  .del { visibility: visible; }
+}
 </style>

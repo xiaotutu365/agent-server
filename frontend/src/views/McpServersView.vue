@@ -155,7 +155,7 @@ async function saveServers() {
 .page-head h2 { margin: 0 0 4px; font-size: 18px; }
 .hint { color: var(--muted); font-size: 13px; margin: 0; max-width: 720px; }
 .hint b { color: var(--text); }
-.err { background: #fde8e8; color: #d93025; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+.err { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
 
 .agent-pick { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; font-size: 13px; color: var(--text); }
 .agent-pick select { border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-family: inherit; font-size: 13px; background: var(--panel); color: var(--text); }
@@ -164,7 +164,7 @@ async function saveServers() {
 .save { border: none; background: var(--accent); color: #fff; padding: 9px 18px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 600; }
 .save:disabled { opacity: 0.55; cursor: not-allowed; }
 .ghost { border: 1px solid var(--border); background: transparent; color: var(--text); padding: 9px 14px; border-radius: 9px; cursor: pointer; font-size: 13px; }
-.saved { color: #22a06b; font-size: 13px; }
+.saved { color: var(--success); font-size: 13px; }
 .spacer { flex: 1; }
 .muted { color: var(--muted); font-size: 13px; }
 </style>

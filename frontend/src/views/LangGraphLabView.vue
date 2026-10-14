@@ -392,11 +392,11 @@ function tagOf(e) {
   padding: 10px 20px; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 600;
 }
 .send:disabled { opacity: 0.5; cursor: not-allowed; }
-.send.stop { background: #d93025; }
+.send.stop { background: var(--destructive); }
 
 .hitl {
   border: 1px solid var(--accent); border-radius: 12px; padding: 14px 16px;
-  background: var(--panel); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  background: var(--panel);
 }
 .hitl-head { font-weight: 600; color: var(--text); margin-bottom: 10px; font-size: 14px; }
 .raw-wrap { margin-bottom: 10px; }
@@ -454,9 +454,9 @@ function tagOf(e) {
 .tl-out { color: var(--muted); margin-top: 2px; }
 .tl-interrupt { border-color: var(--accent); }
 .tl-interrupt .tl-tag { color: var(--accent); }
-.tl-resume .tl-tag { color: #22a06b; }
-.tl-error { border-color: #d93025; }
-.tl-error .tl-tag { color: #d93025; }
+.tl-resume .tl-tag { color: var(--success); }
+.tl-error { border-color: var(--destructive); }
+.tl-error .tl-tag { color: var(--destructive); }
 .tl-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 20px; }
 .muted { color: var(--muted); }
 </style>

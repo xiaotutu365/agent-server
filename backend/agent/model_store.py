@@ -12,9 +12,11 @@
 无配置时回退到原有环境变量/KB 配置，保证兼容。
 """
 
+import asyncio
 import json
 import os
 import sqlite3
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -128,10 +130,32 @@ def get_default_sync(type: str) -> dict | None:
     return _row_to_model(row) if row else None
 
 
+def _validate_model_data(data: dict):
+    """必填校验：名称 / 接口地址 / 模型名 为通用必填；嵌入模型还需维度(>0)。"""
+    mtype = data.get("type")
+    name = (data.get("name") or "").strip()
+    model = (data.get("model") or "").strip()
+    base_url = (data.get("base_url") or "").strip()
+    if not name:
+        raise ValueError("请填写模型名称(name)")
+    if not model:
+        raise ValueError("请填写模型(model)")
+    if not base_url:
+        raise ValueError("请填写接口地址(base_url)")
+    if mtype == "embedding":
+        try:
+            dim = int(data.get("dim", 0) or 0)
+        except (TypeError, ValueError):
+            dim = 0
+        if dim <= 0:
+            raise ValueError("嵌入模型请填写维度(dim)，且需大于 0")
+
+
 async def create_model(data: dict) -> dict:
     mtype = data.get("type")
     if mtype not in MODEL_TYPES:
         raise ValueError("未知的模型类型")
+    _validate_model_data(data)
     is_default = bool(data.get("is_default", False))
     cfg = {
         "id": str(uuid.uuid4()),
@@ -195,6 +219,7 @@ async def update_model(model_id: str, data: dict) -> dict | None:
             "extra": extra,
             "updated_at": _now(),
         }
+        _validate_model_data(cfg)
         await conn.execute(
             """UPDATE model_configs SET
                  name=?, type=?, base_url=?, api_key=?, model=?, dim=?,
@@ -215,3 +240,75 @@ async def delete_model(model_id: str) -> dict:
         await conn.execute("DELETE FROM model_configs WHERE id=?", (model_id,))
         await conn.commit()
     return {"deleted": model_id}
+
+
+async def test_model_connection(cfg: dict) -> dict:
+    """按配置发起一次最小化真实请求，验证连通性。返回 {ok, detail, latency_ms}。
+
+    按 type 选择不同探测方式：
+      - llm:       一次极短对话（init_chat_model）
+      - embedding: 一次向量化（OpenAIEmbeddings）
+      - rerank:    一次重排（POST base_url，兼容 Cohere/Jina/Voyage 等）
+    """
+    t0 = time.monotonic()
+    mtype = cfg.get("type") or "llm"
+    base_url = (cfg.get("base_url") or "").strip()
+    api_key = (cfg.get("api_key") or "").strip()
+    model = (cfg.get("model") or "").strip()
+    dim = cfg.get("dim") or 0
+    if not model:
+        return {"ok": False, "detail": "请先填写模型名(model)", "latency_ms": 0}
+    try:
+        if mtype == "llm":
+            from langchain.chat_models import init_chat_model
+
+            llm = init_chat_model(
+                model, model_provider="openai", api_key=api_key or None,
+                base_url=base_url or None, temperature=0.1, max_tokens=16,
+                timeout=15, max_retries=1, streaming=False,
+            )
+            out = await asyncio.to_thread(llm.invoke, "ping")
+            text = getattr(out, "content", "") or ""
+            if not text:
+                raise RuntimeError("模型返回内容为空")
+            detail = f"对话成功，返回 {len(str(text))} 字符"
+        elif mtype == "embedding":
+            from langchain_openai import OpenAIEmbeddings
+
+            emb = OpenAIEmbeddings(
+                model=model, api_key=api_key or None, base_url=base_url or None,
+                timeout=15, max_retries=1,
+            )
+            vec = await asyncio.to_thread(emb.embed_query, "连通性测试")
+            if not isinstance(vec, (list, tuple)) or len(vec) == 0:
+                raise RuntimeError("返回向量为空")
+            detail = f"向量化成功，维度 {len(vec)}"
+            if dim and len(vec) != int(dim):
+                detail += f"（配置 dim={dim}，实际 {len(vec)}，请核对）"
+        elif mtype == "rerank":
+            import json as _json
+            import urllib.request
+
+            def _do():
+                _body = _json.dumps(
+                    {"model": model, "query": "连通性测试",
+                     "documents": ["这是测试文档一", "这是测试文档二"]}
+                ).encode("utf-8")
+                req = urllib.request.Request(base_url, data=_body, method="POST")
+                req.add_header("Content-Type", "application/json")
+                if api_key:
+                    req.add_header("Authorization", "Bearer " + api_key)
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    return _json.loads(resp.read().decode("utf-8"))
+
+            _data = await asyncio.to_thread(_do)
+            results = _data.get("results") or _data.get("data") or []
+            detail = f"重排成功，返回 {len(results)} 条结果"
+        else:
+            return {"ok": False, "detail": f"不支持的类型: {mtype}", "latency_ms": 0}
+    except Exception as e:  # noqa: BLE001
+        err = str(e)
+        if len(err) > 300:
+            err = err[:300] + "…"
+        return {"ok": False, "detail": err, "latency_ms": int((time.monotonic() - t0) * 1000)}
+    return {"ok": True, "detail": detail, "latency_ms": int((time.monotonic() - t0) * 1000)}

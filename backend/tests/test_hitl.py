@@ -18,12 +18,14 @@ _VALID_DECISIONS = {"approve", "reject", "respond", "edit"}
 
 
 def test_interrupt_tools_config_valid():
-    """INTERRUPT_TOOLS 中每个工具的 allowed_decisions 必须是合法的决策类型。"""
+    """INTERRUPT_TOOLS 中每个工具的 allowed_decisions 必须是合法的决策类型。
+
+    形态与 agent/config_store.DEFAULT_CONFIG["hitl"]、deep_agent 运行时构建的
+    interrupt_on 一致：{工具名: [决策列表]}。
+    """
     assert INTERRUPT_TOOLS, "INTERRUPT_TOOLS 不应为空（至少应声明需要人工介入的工具）"
-    for tool, cfg in INTERRUPT_TOOLS.items():
+    for tool, decisions in INTERRUPT_TOOLS.items():
         assert isinstance(tool, str) and tool, f"工具名非法: {tool!r}"
-        assert isinstance(cfg, dict), f"{tool} 的配置应为 dict"
-        decisions = cfg.get("allowed_decisions")
         assert isinstance(decisions, list) and decisions, (
             f"{tool} 的 allowed_decisions 必须是非空列表"
         )

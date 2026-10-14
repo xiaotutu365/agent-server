@@ -40,7 +40,7 @@ function statusIcon(s) {
 .plan ul { list-style: none; margin: 0; padding: 0; }
 .plan li { display: flex; gap: 8px; padding: 3px 0; align-items: baseline; }
 .plan-status { width: 16px; text-align: center; }
-.done { color: #22a06b; }
+.done { color: var(--success); }
 .doing { color: #e8930c; }
 .pending { color: var(--muted); }
 .plan-content { flex: 1; }

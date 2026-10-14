@@ -18,6 +18,10 @@
           </option>
         </select>
         <span v-if="!agents.length" class="muted">（加载中…）</span>
+        <button class="head-btn" @click="showTasks = !showTasks" :aria-pressed="showTasks">
+          任务清单
+          <span v-if="currentPlan.length" class="badge">{{ doneCount }}/{{ currentPlan.length }}</span>
+        </button>
       </div>
       <main class="chat" ref="chatEl">
         <div v-if="!messages.length" class="empty">
@@ -78,11 +82,29 @@
         <div v-else class="pending-hint">⏸ 请先处理上方的待确认事项</div>
       </footer>
     </div>
+
+    <aside class="task-panel" v-if="showTasks">
+      <div class="task-head">
+        <span class="task-title">任务清单</span>
+        <span class="task-count" v-if="currentPlan.length">{{ doneCount }}/{{ currentPlan.length }}</span>
+        <button class="task-close" @click="showTasks = false" aria-label="收起任务清单">✕</button>
+      </div>
+      <div class="task-progress" v-if="currentPlan.length">
+        <div class="bar"><div class="bar-fill" :style="{ width: taskPct + '%' }"></div></div>
+      </div>
+      <ul class="task-list" v-if="currentPlan.length">
+        <li v-for="(t, i) in currentPlan" :key="i" :class="taskStatusClass(t.status)">
+          <span class="t-status">{{ taskStatusIcon(t.status) }}</span>
+          <span class="t-content">{{ t.content }}</span>
+        </li>
+      </ul>
+      <div class="task-empty" v-else>暂无任务计划</div>
+    </aside>
   </div>
 </template>
 
 <script setup>
-import { nextTick, onMounted, reactive, ref } from 'vue'
+import { nextTick, onMounted, reactive, ref, computed, watch } from 'vue'
 import ChatMessage from '../components/MessageBubble.vue'
 import ThreadList from '../components/ThreadList.vue'
 import { streamChat } from '../api/chat'
@@ -102,6 +124,31 @@ const selectedAgentId = ref('')
 
 // 待用户处理的中断（HITL）：非空时表示图已挂起，等待用户决策/回复
 const pendingInterrupt = ref(null)
+
+// 右侧「任务清单」面板：展示最近一份计划 + 进度概览
+const showTasks = ref(false)
+const currentPlan = computed(() => {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const p = messages[i].plan
+    if (p && p.length) return p
+  }
+  return []
+})
+const doneCount = computed(() => currentPlan.value.filter(t => t.status === 'completed').length)
+const taskPct = computed(() =>
+  currentPlan.value.length ? Math.round(doneCount.value / currentPlan.value.length * 100) : 0
+)
+// 第一次出现计划时自动展开面板（之后用户可手动收起）
+watch(
+  () => currentPlan.value.length,
+  (n, o) => { if (n > 0 && o === 0) showTasks.value = true }
+)
+function taskStatusClass(s) {
+  return s === 'completed' ? 'done' : s === 'in_progress' ? 'doing' : 'pending'
+}
+function taskStatusIcon(s) {
+  return s === 'completed' ? '✓' : s === 'in_progress' ? '▶' : '○'
+}
 
 let controller = null
 
@@ -414,10 +461,10 @@ onMounted(async () => {
 
 <style scoped>
 .main-row {
-  flex: 1;
+  height: 100%;
   display: flex;
   min-height: 0;
-  max-width: 1120px;
+  max-width: 1360px;
   margin: 0 auto;
 }
 .chat-col {
@@ -449,6 +496,52 @@ onMounted(async () => {
   color: var(--text);
 }
 .chat-head .muted { color: var(--muted); }
+.head-btn {
+  margin-left: auto;
+  display: inline-flex; align-items: center; gap: 6px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--text-2);
+  border-radius: 8px; padding: 6px 10px; font-family: inherit; font-size: 13px; cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease;
+}
+.head-btn:hover { background: var(--panel-hover); border-color: var(--border-strong); }
+.head-btn .badge {
+  background: var(--primary); color: var(--on-primary);
+  border-radius: 99px; padding: 1px 7px; font-size: 11px; font-weight: 600;
+}
+
+/* ---------- 右侧任务清单面板 ---------- */
+.task-panel {
+  flex: none;
+  width: 264px;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.task-head {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+  font-weight: 600; font-size: 13px; color: var(--text);
+}
+.task-title { flex: none; }
+.task-count { margin-left: auto; color: var(--muted); font-weight: 500; }
+.task-close {
+  border: none; background: transparent; color: var(--muted); cursor: pointer;
+  font-size: 13px; padding: 2px 6px; border-radius: 6px;
+}
+.task-close:hover { background: var(--panel-hover); color: var(--text); }
+.task-progress { flex: none; padding: 10px 14px 4px; }
+.bar { height: 6px; border-radius: 99px; background: var(--panel-2); overflow: hidden; }
+.bar-fill { height: 100%; background: var(--primary); transition: width .25s ease; }
+.task-list { list-style: none; margin: 0; padding: 6px 8px 12px; overflow: auto; flex: 1; }
+.task-list li { display: flex; gap: 8px; padding: 8px; border-radius: 8px; font-size: 13px; align-items: flex-start; }
+.task-list li:hover { background: var(--panel-hover); }
+.t-status { width: 16px; text-align: center; flex: none; }
+.task-list .done { color: var(--success); }
+.task-list .doing { color: var(--cta); }
+.task-list .pending { color: var(--muted); }
+.t-content { flex: 1; line-height: 1.45; }
+.task-list li.done .t-content { text-decoration: line-through; color: var(--muted); }
+.task-empty { padding: 24px 14px; color: var(--muted); font-size: 13px; text-align: center; }
 
 .chat {
   flex: 1;
@@ -472,7 +565,7 @@ onMounted(async () => {
   display: flex;
   gap: 10px;
   align-items: flex-end;
-  padding: 14px 20px;
+  padding: 10px 20px;
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
@@ -481,7 +574,7 @@ onMounted(async () => {
   resize: none;
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 11px 14px;
+  padding: 8px 14px;
   font-family: inherit;
   font-size: 14px;
   line-height: 1.5;
@@ -494,16 +587,18 @@ onMounted(async () => {
 .send {
   flex: none;
   border: none;
-  background: var(--accent);
-  color: #fff;
+  background: var(--cta-strong);
+  color: var(--on-cta);
   padding: 11px 22px;
   border-radius: 12px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;
+  transition: background-color .15s ease;
 }
+.send:hover:not(:disabled) { background: var(--cta); }
 .send:disabled { opacity: 0.5; cursor: not-allowed; }
-.send.stop { background: #d93025; }
+.send.stop { background: var(--destructive); }
 
 .hitl-panel {
   flex: none;
@@ -512,7 +607,7 @@ onMounted(async () => {
   border: 1px solid var(--accent);
   border-radius: 12px;
   background: var(--panel);
-  box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+
 }
 .hitl-head { font-weight: 600; color: var(--text); margin-bottom: 10px; font-size: 14px; }
 .hitl-req-group { display: flex; flex-direction: column; gap: 10px; }
@@ -563,4 +658,14 @@ onMounted(async () => {
   padding: 10px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600;
 }
 .pending-hint { color: var(--muted); font-size: 13px; padding: 11px 0; }
+
+@media (max-width: 760px) {
+  .main-row { flex-direction: column; width: 100%; }
+  .chat-head, .chat, .composer { padding-left: 14px; padding-right: 14px; }
+  .chat { padding-top: 18px; }
+  .empty { padding: 32px 4px; }
+  .composer { align-items: stretch; flex-direction: column; }
+  .send { width: 100%; min-height: 44px; }
+  .hitl-panel { margin-left: 14px; margin-right: 14px; }
+}
 </style>

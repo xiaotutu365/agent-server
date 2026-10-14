@@ -342,7 +342,7 @@ function back() {
 }
 .admin-head h2 { margin: 0 0 4px; font-size: 18px; }
 .hint { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
-.err, .err { background: #fde8e8; color: #d93025; padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+.err, .err { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
 .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-top: 16px; }
 .card h3 { margin: 0 0 10px; font-size: 15px; }
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
@@ -353,7 +353,7 @@ function back() {
   font-family: inherit; font-size: 14px; background: var(--bg); color: var(--text); resize: vertical;
 }
 .field input:focus, .field textarea:focus { border-color: var(--accent); outline: none; }
-.val-err { margin: 4px 0 0; padding-left: 18px; color: #d93025; font-size: 13px; }
+.val-err { margin: 4px 0 0; padding-left: 18px; color: var(--destructive); font-size: 13px; }
 .val-err li { margin: 2px 0; }
 .group { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; }
 .group:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
@@ -377,10 +377,10 @@ function back() {
 .actions { margin: 20px 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .save { border: none; background: var(--accent); color: #fff; padding: 11px 22px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600; }
 .save:disabled { opacity: 0.55; cursor: not-allowed; }
-.del { border: 1px solid #d93025; background: transparent; color: #d93025; padding: 11px 18px; border-radius: 10px; cursor: pointer; font-size: 14px; }
+.del { border: 1px solid var(--destructive); background: transparent; color: var(--destructive); padding: 11px 18px; border-radius: 10px; cursor: pointer; font-size: 14px; }
 .del:disabled { opacity: 0.5; cursor: not-allowed; }
 .ghost { border: 1px solid var(--border); background: transparent; color: var(--text); padding: 11px 18px; border-radius: 10px; cursor: pointer; font-size: 14px; }
-.saved { color: #22a06b; font-size: 13px; }
-.blocked { color: #d93025; font-size: 13px; }
+.saved { color: var(--success); font-size: 13px; }
+.blocked { color: var(--destructive); font-size: 13px; }
 .noop { color: var(--muted); font-size: 13px; }
 </style>

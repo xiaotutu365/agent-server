@@ -344,7 +344,7 @@ onMounted(load)
 .kb-list .row { display: flex; align-items: center; justify-content: space-between; }
 .kb-list .name { font-size: 13px; font-weight: 600; }
 .kb-list .count { font-size: 12px; color: var(--muted); }
-.kb-list .del { align-self: flex-end; border: none; background: transparent; color: #d93025;
+.kb-list .del { align-self: flex-end; border: none; background: transparent; color: var(--destructive);
   font-size: 12px; cursor: pointer; padding: 0; }
 
 .hint { color: var(--muted); font-size: 13px; }
@@ -360,8 +360,8 @@ onMounted(load)
 .search button { border: none; background: var(--accent); color: #fff; padding: 10px 20px;
   border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600; }
 .search button:disabled { opacity: 0.5; cursor: not-allowed; }
-.error { color: #d93025; font-size: 13px; }
-.msg { color: #22a06b; font-size: 13px; }
+.error { color: var(--destructive); font-size: 13px; }
+.msg { color: var(--success); font-size: 13px; }
 .results { display: flex; flex-direction: column; gap: 12px; }
 .result { border: 1px solid var(--border); border-radius: 12px; padding: 14px; background: var(--panel); }
 .result .meta { display: flex; gap: 10px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
@@ -381,4 +381,14 @@ onMounted(load)
 .cfg-actions { display: flex; }
 .cfg-actions .save { border: none; background: var(--accent); color: #fff; padding: 10px 22px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600; }
 .cfg-actions .save:disabled { opacity: 0.55; cursor: not-allowed; }
+
+@media (max-width: 760px) {
+  .kb { flex-direction: column; }
+  .kb-side { width: 100%; border-right: 0; border-bottom: 1px solid var(--border); }
+  .kb-list { max-height: 160px; overflow: auto; }
+  .kb-main { padding: 14px; }
+  .main-head, .search, .field-row { align-items: stretch; flex-direction: column; }
+  .field-row .lbl { width: auto; }
+  .search button { min-height: 44px; }
+}
 </style>

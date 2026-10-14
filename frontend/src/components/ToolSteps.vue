@@ -38,7 +38,7 @@ defineProps({ steps: { type: Array, default: () => [] } })
 .step-head:hover { background: var(--panel-hover); }
 .step-icon { width: 16px; text-align: center; }
 .step-icon.running { color: #e8930c; animation: spin 1.2s linear infinite; display: inline-block; }
-.step-icon.done { color: #22a06b; }
+.step-icon.done { color: var(--success); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .step-tool { font-weight: 600; font-family: var(--mono); }
 .step-toggle { margin-left: auto; color: var(--muted); font-size: 12px; }

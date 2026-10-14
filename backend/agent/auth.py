@@ -238,6 +238,10 @@ async def delete_department(did: str):
 
 # ---------- 用户表 ----------
 async def init_users_table():
+    # 确保 DB 文件所在目录存在（全新检出时 data/ 可能尚不存在，否则 connect 会失败）
+    _db_dir = os.path.dirname(DB_PATH)
+    if _db_dir:
+        os.makedirs(_db_dir, exist_ok=True)
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute(
             """CREATE TABLE IF NOT EXISTS users (
@@ -277,15 +281,23 @@ async def seed_admin():
         await conn.commit()
 
 
+def _cell(row, key, default=None):
+    """安全读取 sqlite3.Row 中的列：缺失时返回 default（sqlite3.Row 无 .get）。"""
+    try:
+        return row[key]
+    except (IndexError, KeyError):
+        return default
+
+
 def _row_to_user(row) -> dict:
     return {
         "id": row["id"],
         "username": row["username"],
         "role": row["role"],
         "role_id": row["role_id"],
-        "role_name": row.get("role_name"),
+        "role_name": _cell(row, "role_name"),
         "department_id": row["department_id"],
-        "department_name": row.get("department_name"),
+        "department_name": _cell(row, "department_name"),
         "disabled": bool(row["disabled"]),
         "created_at": row["created_at"],
     }

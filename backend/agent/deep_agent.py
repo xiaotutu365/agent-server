@@ -20,6 +20,15 @@ from tools.custom_tools import CUSTOM_TOOLS
 from tools.search_tools import SEARCH_TOOLS
 from kb.tools import KB_TOOLS
 
+# 默认需要人工介入（HITL）的工具及其允许的决策类型。
+# 与 agent/config_store.DEFAULT_CONFIG["hitl"] 保持一致；运行时以各 Agent 配置的 hitl 为准。
+# 配合 deepagents 的 HumanInTheLoopMiddleware：当某工具出现在此表且决策含 "respond" 时，
+# 调用该工具会令图 interrupt() 挂起，等待前端用 Command(resume=...) 恢复。
+INTERRUPT_TOOLS = {
+    "create_work_order": ["approve", "reject"],
+    "ask_human": ["respond"],
+}
+
 SYSTEM_PROMPT = """你是一个深度研究助手（deep agent）。
 
 工作准则：
@@ -79,13 +88,38 @@ async def build_agent(config: dict | None = None, system_prompt: str | None = No
     except Exception:  # noqa: BLE001
         pass
 
+    # 从默认「大模型」配置的 extra 读取高级参数（温度 / TopP / 最大Token / 惩罚 / 超时 / 停止词）
+    llm_params: dict = {}
+    if llm_cfg:
+        ex = llm_cfg.get("extra")
+        if isinstance(ex, dict):
+            for _k in ("temperature", "top_p", "max_tokens",
+                       "frequency_penalty", "presence_penalty", "timeout", "stop"):
+                if _k in ex and ex[_k] not in (None, ""):
+                    llm_params[_k] = ex[_k]
+    # Agent 级 temperature 优先级更高（兼容既有 Agent 配置）
+    if config.get("temperature") not in (None, ""):
+        llm_params["temperature"] = config["temperature"]
+
+    model_kwargs: dict = {}
+    for _k in ("top_p", "max_tokens", "frequency_penalty", "presence_penalty", "timeout"):
+        if _k in llm_params:
+            try:
+                model_kwargs[_k] = int(llm_params[_k]) if _k == "max_tokens" else float(llm_params[_k])
+            except (TypeError, ValueError):
+                pass
+    if llm_params.get("stop"):
+        _s = llm_params["stop"]
+        model_kwargs["stop"] = [x.strip() for x in str(_s).split(",") if x.strip()]
+
     model = init_chat_model(
         model_name,
         model_provider="openai",
         api_key=api_key,
         base_url=base_url,
-        temperature=float(config.get("temperature", 0.3)),
+        temperature=float(llm_params.get("temperature", config.get("temperature", 0.3))),
         streaming=True,
+        **model_kwargs,
     )
 
     # 虚拟文件系统：限制在 backend/workspace 目录内

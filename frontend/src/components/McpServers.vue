@@ -283,17 +283,17 @@ function removeServer(i) {
 .srv-name { font-weight: 600; font-size: 13px; }
 .spacer { flex: 1; }
 .badge { font-size: 11px; padding: 2px 9px; border-radius: 20px; background: var(--code-bg); color: var(--muted); border: 1px solid var(--border); }
-.badge.stdio { color: #2563eb; }
-.badge.sse, .badge.streamable_http { color: #9333ea; }
-.badge.ok { color: #22a06b; border-color: #22a06b; }
-.badge.off { color: #d93025; border-color: #d93025; }
+.badge.stdio { color: var(--primary); }
+.badge.sse, .badge.streamable_http { color: var(--cta); }
+.badge.ok { color: var(--success); border-color: var(--success); }
+.badge.off { color: var(--destructive); border-color: var(--destructive); }
 .badge.role { color: #b45309; border-color: #b45309; }
 .link { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 13px; padding: 2px 4px; }
-.link.danger { color: #d93025; }
+.link.danger { color: var(--destructive); }
 .srv-meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
 .srv-preview { margin-top: 8px; font-size: 12px; color: var(--text); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .chip { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 1px 7px; }
-.err-inline { color: #d93025; }
+.err-inline { color: var(--destructive); }
 .muted { color: var(--muted); font-size: 13px; }
 
 .modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 50; }
@@ -307,8 +307,8 @@ function removeServer(i) {
 .field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); outline: none; }
 .modal-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .form-test { font-size: 12px; }
-.form-test.ok { color: #22a06b; }
-.form-test.bad { color: #d93025; }
+.form-test.ok { color: var(--success); }
+.form-test.bad { color: var(--destructive); }
 .save { border: none; background: var(--accent); color: #fff; padding: 9px 18px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 600; }
 .ghost { border: 1px solid var(--border); background: transparent; color: var(--text); padding: 9px 14px; border-radius: 9px; cursor: pointer; font-size: 13px; }
 </style>

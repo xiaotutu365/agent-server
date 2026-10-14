@@ -9,5 +9,6 @@ marked.setOptions({
 
 export function renderMarkdown(src) {
   if (!src) return ''
-  return marked.parse(src)
+  // 去掉结尾换行：marked 输出以 \n 结尾，在 white-space:pre-wrap 下会渲染成气泡底部空行
+  return marked.parse(src).replace(/\n+$/, '')
 }
