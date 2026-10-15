@@ -1,12 +1,18 @@
 <template>
   <div class="steps">
     <div v-for="(s, i) in steps" :key="i" class="step">
-      <div class="step-head" @click="s.open = !s.open">
-        <span class="step-icon" :class="s.status">{{ s.status === 'running' ? '⟳' : '✓' }}</span>
+      <button
+        class="step-head"
+        @click="s.open = !s.open"
+        :aria-expanded="s.open ? 'true' : 'false'"
+        :aria-controls="`step-body-${i}`"
+      >
+        <span class="step-icon" :class="s.status" aria-hidden="true">{{ s.status === 'running' ? '⟳' : '✓' }}</span>
         <span class="step-tool">{{ s.tool }}</span>
+        <span class="step-status" :class="s.status">{{ s.status === 'running' ? '运行中' : '已完成' }}</span>
         <span class="step-toggle">{{ s.open ? '收起' : '详情' }}</span>
-      </div>
-      <div v-if="s.open" class="step-body">
+      </button>
+      <div v-if="s.open" :id="`step-body-${i}`" class="step-body">
         <div class="step-label">输入</div>
         <pre>{{ s.input }}</pre>
         <template v-if="s.output">
@@ -33,14 +39,19 @@ defineProps({ steps: { type: Array, default: () => [] } })
 }
 .step-head {
   display: flex; align-items: center; gap: 8px;
+  width: 100%; border: none; background: transparent;
   padding: 7px 12px; cursor: pointer; user-select: none;
+  font-family: inherit; font-size: 13px; color: var(--text); text-align: left;
 }
 .step-head:hover { background: var(--panel-hover); }
 .step-icon { width: 16px; text-align: center; }
-.step-icon.running { color: #e8930c; animation: spin 1.2s linear infinite; display: inline-block; }
+.step-icon.running { color: var(--warning); animation: spin 1.2s linear infinite; display: inline-block; }
 .step-icon.done { color: var(--success); }
 @keyframes spin { to { transform: rotate(360deg); } }
 .step-tool { font-weight: 600; font-family: var(--mono); }
+.step-status { font-size: 12px; }
+.step-status.running { color: var(--warning); }
+.step-status.done { color: var(--muted); }
 .step-toggle { margin-left: auto; color: var(--muted); font-size: 12px; }
 .step-body { padding: 0 12px 10px; }
 .step-label { color: var(--muted); font-size: 12px; margin: 6px 0 3px; }

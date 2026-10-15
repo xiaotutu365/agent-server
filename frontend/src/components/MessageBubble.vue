@@ -1,14 +1,29 @@
 <template>
-  <div class="msg" :class="msg.role">
-    <div class="avatar">{{ msg.role === 'user' ? '你' : 'AI' }}</div>
+  <div class="msg" :class="msg.role" :aria-busy="msg.role === 'assistant' && msg.streaming ? 'true' : undefined">
+    <div class="avatar" aria-hidden="true">{{ msg.role === 'user' ? '你' : 'AI' }}</div>
     <div class="body">
       <template v-if="msg.role === 'assistant'">
         <PlanPanel :todos="msg.plan" />
         <ToolSteps :steps="msg.steps" />
       </template>
       <div v-if="msg.content" class="content markdown" v-html="renderMarkdown(msg.content)"></div>
-      <div v-else-if="msg.role === 'assistant' && msg.streaming" class="typing">思考中…</div>
-      <div v-if="msg.error" class="error">⚠ {{ msg.error }}</div>
+      <div
+        v-else-if="msg.role === 'assistant' && msg.streaming"
+        class="typing"
+        role="status"
+        aria-label="正在生成回复"
+      >
+        <span class="dot" v-for="n in 3" :key="n"></span>
+        <span class="typing-text">思考中…</span>
+      </div>
+      <div v-if="msg.error" class="error-card" role="alert">
+        <span class="error-text">⚠ {{ msg.error }}</span>
+        <button
+          v-if="!msg.streaming"
+          class="error-retry"
+          @click="$emit('retry')"
+        >重试</button>
+      </div>
     </div>
   </div>
 </template>
@@ -19,6 +34,7 @@ import PlanPanel from './PlanPanel.vue'
 import ToolSteps from './ToolSteps.vue'
 
 defineProps({ msg: { type: Object, required: true } })
+defineEmits(['retry'])
 </script>
 
 <style scoped>
@@ -54,7 +70,37 @@ defineProps({ msg: { type: Object, required: true } })
 /* 气泡内边距已提供间距，去掉首尾块的默认外边距，避免顶部/底部多余空白 */
 .content.markdown > :first-child { margin-top: 0; }
 .content.markdown > :last-child { margin-bottom: 0; }
-.typing { color: var(--muted); font-size: 13px; padding: 6px 2px; animation: blink 1.2s infinite; }
-@keyframes blink { 50% { opacity: 0.4; } }
-.error { color: var(--destructive); font-size: 13px; margin-top: 6px; }
+.typing {
+  display: inline-flex; align-items: center; gap: 5px;
+  color: var(--muted); font-size: 13px; padding: 8px 2px;
+}
+.typing .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--muted);
+  animation: bounce 1.2s ease-in-out infinite;
+}
+.typing .dot:nth-child(2) { animation-delay: 0.15s; }
+.typing .dot:nth-child(3) { animation-delay: 0.3s; }
+.typing-text { margin-left: 4px; }
+@keyframes bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
+  30% { transform: translateY(-4px); opacity: 1; }
+}
+.error-card {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 6px;
+  padding: 9px 12px;
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--destructive) 30%, transparent);
+  border-radius: 10px;
+  color: var(--destructive); font-size: 13px;
+}
+.error-text { flex: 1; min-width: 0; word-break: break-word; }
+.error-retry {
+  flex: none;
+  border: 1px solid var(--destructive); background: transparent; color: var(--destructive);
+  border-radius: 8px; padding: 4px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: background-color .15s ease;
+}
+.error-retry:hover { background: color-mix(in srgb, var(--destructive) 12%, transparent); }
 </style>

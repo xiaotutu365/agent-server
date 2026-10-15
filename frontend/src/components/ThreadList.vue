@@ -7,10 +7,15 @@
         :key="t.thread_id"
         class="item"
         :class="{ active: t.thread_id === currentId }"
+        role="button"
+        tabindex="0"
+        :aria-current="t.thread_id === currentId ? 'true' : undefined"
         @click="$emit('select', t.thread_id)"
+        @keydown.enter.prevent="$emit('select', t.thread_id)"
+        @keydown.space.prevent="$emit('select', t.thread_id)"
       >
         <span class="item-title">{{ t.title || '新会话' }}</span>
-        <button class="del" title="删除会话" @click.stop="$emit('remove', t.thread_id)">×</button>
+        <button class="del" aria-label="删除会话" @click.stop="$emit('remove', t.thread_id)">×</button>
       </div>
       <div v-if="!threads.length" class="empty">暂无历史会话</div>
     </div>
@@ -40,7 +45,7 @@ defineEmits(['new', 'select', 'remove'])
 .new-btn {
   border: none;
   background: var(--accent);
-  color: #fff;
+  color: var(--on-primary);
   padding: 9px 0;
   border-radius: 9px;
   cursor: pointer;

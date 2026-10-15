@@ -25,6 +25,11 @@
       </div>
       <main class="chat" ref="chatEl">
         <div v-if="!messages.length" class="empty">
+          <div class="empty-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          </div>
           <h2>开始与 DeepAgent 对话</h2>
           <p>它具备任务规划、虚拟文件系统、联网搜索、自定义工具与知识库检索能力。</p>
           <div class="suggestions">
@@ -32,7 +37,7 @@
           </div>
         </div>
 
-        <ChatMessage v-for="(m, i) in messages" :key="i" :msg="m" />
+        <ChatMessage v-for="(m, i) in messages" :key="i" :msg="m" @retry="retryFrom(m)" />
       </main>
 
       <div v-if="pendingInterrupt" class="hitl-panel">
@@ -169,10 +174,13 @@ function autoResize() {
   el.style.height = Math.min(el.scrollHeight, 160) + 'px'
 }
 
-function scrollToBottom() {
+function scrollToBottom(force = false) {
   nextTick(() => {
     const el = chatEl.value
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    // 流式输出时仅当用户停在底部附近才跟随，避免上翻看历史被拽回
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    if (force || nearBottom) el.scrollTop = el.scrollHeight
   })
 }
 
@@ -236,7 +244,7 @@ async function switchThread(id) {
   threadId.value = id
   localStorage.setItem('lastThreadId', id)
   await restoreThread(id)
-  scrollToBottom()
+  scrollToBottom(true)
 }
 
 async function removeThread(id) {
@@ -316,6 +324,25 @@ function makeHandlers(assistant) {
   }
 }
 
+// 统一的流式调用：send / 重试 / HITL resume 共用，收敛 loading 与错误处理
+async function runStream(content, assistant, resume = null) {
+  streaming.value = true
+  controller = new AbortController()
+  try {
+    await streamChat(content, threadId.value, makeHandlers(assistant), controller.signal, resume, null, selectedAgentId.value)
+  } catch (err) {
+    if (err.name !== 'AbortError') {
+      assistant.error = err.message || String(err)
+    }
+  } finally {
+    assistant.streaming = false
+    streaming.value = false
+    controller = null
+    scrollToBottom()
+    loadThreads()
+  }
+}
+
 async function send(text) {
   const content = (text ?? input.value).trim()
   if (!content || streaming.value || pendingInterrupt.value) return
@@ -336,24 +363,35 @@ async function send(text) {
     error: ''
   })
   messages.push(assistant)
-  scrollToBottom()
+  scrollToBottom(true)
 
-  streaming.value = true
-  controller = new AbortController()
+  await runStream(content, assistant)
+}
 
-  try {
-    await streamChat(content, threadId.value, makeHandlers(assistant), controller.signal, null, null, selectedAgentId.value)
-  } catch (err) {
-    if (err.name !== 'AbortError') {
-      assistant.error = err.message || String(err)
-    }
-  } finally {
-    assistant.streaming = false
-    streaming.value = false
-    controller = null
-    scrollToBottom()
-    loadThreads()
+// 失败重试：取该条回复前最近的一条用户消息重新发起，不重复插入用户气泡
+async function retryFrom(msg) {
+  if (streaming.value || pendingInterrupt.value) return
+  const idx = messages.indexOf(msg)
+  if (idx < 1) return
+  let userIdx = -1
+  for (let i = idx - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') { userIdx = i; break }
   }
+  if (userIdx === -1) return
+  const content = messages[userIdx].content
+  messages.splice(idx) // 移除失败回复及其后内容
+  if (!threadId.value) newThread()
+  const assistant = reactive({
+    role: 'assistant',
+    content: '',
+    steps: [],
+    plan: [],
+    streaming: true,
+    error: ''
+  })
+  messages.push(assistant)
+  scrollToBottom(true)
+  await runStream(content, assistant)
 }
 
 // 累计索引：将 (request, action) 双层下标映射到扁平 decisions/choices
@@ -428,23 +466,9 @@ async function respondInterrupt() {
 
   pendingInterrupt.value = null
   const assistant = messages[messages.length - 1]
-  if (assistant) assistant.streaming = true
-  streaming.value = true
-  controller = new AbortController()
-
-  try {
-    await streamChat('', threadId.value, makeHandlers(assistant), controller.signal, resume, null, selectedAgentId.value)
-  } catch (err) {
-    if (err.name !== 'AbortError') {
-      if (assistant) assistant.error = err.message || String(err)
-    }
-  } finally {
-    if (assistant) assistant.streaming = false
-    streaming.value = false
-    controller = null
-    scrollToBottom()
-    loadThreads()
-  }
+  if (!assistant) return
+  assistant.streaming = true
+  await runStream('', assistant, resume)
 }
 
 onMounted(async () => {
@@ -452,7 +476,7 @@ onMounted(async () => {
   await loadThreads()
   if (threadId.value) {
     await restoreThread(threadId.value)
-    scrollToBottom()
+    scrollToBottom(true)
   } else if (threads.value.length) {
     await switchThread(threads.value[0].thread_id)
   }
@@ -549,6 +573,14 @@ onMounted(async () => {
   padding: 24px 20px;
 }
 .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
+.empty-icon {
+  width: 56px; height: 56px; margin: 0 auto 16px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--panel-2); color: var(--primary);
+  border: 1px solid var(--border);
+}
+.empty-icon svg { width: 26px; height: 26px; }
 .empty h2 { color: var(--text); margin-bottom: 8px; font-size: 20px; }
 .empty p { font-size: 14px; margin-bottom: 24px; }
 .suggestions { display: flex; flex-direction: column; gap: 10px; align-items: center; }
@@ -652,9 +684,9 @@ onMounted(async () => {
   padding: 7px 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
 }
 .hitl-btn:hover { border-color: var(--accent); }
-.hitl-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.hitl-btn.active { background: var(--accent); color: var(--on-primary); border-color: var(--accent); }
 .hitl-submit {
-  margin-top: 12px; width: 100%; border: none; background: var(--accent); color: #fff;
+  margin-top: 12px; width: 100%; border: none; background: var(--accent); color: var(--on-primary);
   padding: 10px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600;
 }
 .pending-hint { color: var(--muted); font-size: 13px; padding: 11px 0; }
