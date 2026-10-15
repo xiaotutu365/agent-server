@@ -5,7 +5,7 @@
         <h2>部门管理</h2>
         <p class="hint">管理部门；用户可归属于某个部门，便于组织结构管理。</p>
       </div>
-      <button class="primary" @click="openAdd">+ 新建部门</button>
+      <button class="btn btn-primary" @click="openAdd">+ 新建部门</button>
     </div>
 
     <div v-if="error" class="err">{{ error }}</div>
@@ -20,12 +20,12 @@
         <input v-model="form.description" placeholder="可选" />
       </label>
       <div class="actions">
-        <button class="save" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
-        <button class="ghost" @click="showForm = false">取消</button>
+        <button class="btn btn-primary" :disabled="saving" @click="save">{{ saving ? '保存中…' : '保存' }}</button>
+        <button class="btn btn-ghost" @click="showForm = false">取消</button>
       </div>
     </div>
 
-    <div class="card">
+    <div class="card tbl-card">
       <table class="tbl">
         <thead>
           <tr><th>名称</th><th>描述</th><th>用户数</th><th class="op">操作</th></tr>
@@ -36,10 +36,11 @@
             <td class="muted">{{ d.description || '—' }}</td>
             <td class="muted">{{ countByDept(d.id) }}</td>
             <td class="op">
-              <button class="link danger" @click="remove(d)">删除</button>
+              <button class="link link-danger" @click="remove(d)">删除</button>
             </td>
           </tr>
-          <tr v-if="!departments.length"><td colspan="4" class="empty">暂无部门</td></tr>
+          <tr v-if="loading"><td colspan="4" class="empty" role="status">加载中…</td></tr>
+          <tr v-else-if="!departments.length"><td colspan="4" class="empty" role="status">暂无部门</td></tr>
         </tbody>
       </table>
     </div>
@@ -53,6 +54,7 @@ import { apiFetch } from '../auth'
 const departments = ref([])
 const users = ref([])
 const error = ref('')
+const loading = ref(false)
 const showForm = ref(false)
 const saving = ref(false)
 const form = ref({ name: '', description: '' })
@@ -61,6 +63,7 @@ onMounted(load)
 
 async function load() {
   error.value = ''
+  loading.value = true
   try {
     const [r1, r2] = await Promise.all([
       apiFetch('/api/admin/departments'),
@@ -70,10 +73,16 @@ async function load() {
     users.value = (await r2.json()).users || []
   } catch (e) {
     error.value = e.message || String(e)
+  } finally {
+    loading.value = false
   }
 }
 function countByDept(did) {
   return users.value.filter((u) => u.department_id === did).length
+}
+
+function openAdd() {
+  showForm.value = true
 }
 
 async function save() {
@@ -122,28 +131,6 @@ async function remove(d) {
 </script>
 
 <style scoped>
-.list-page { padding: 24px 28px; max-width: 100%; margin: 0 auto; width: 100%; }
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-.page-head h2 { margin: 0 0 4px; font-size: 18px; }
-.hint { color: var(--muted); font-size: 13px; margin: 0; max-width: 720px; }
-.primary { flex: none; border: none; background: var(--accent); color: #fff; padding: 10px 18px; border-radius: 9px; cursor: pointer; font-size: 14px; font-weight: 600; }
-.err { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
-.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-top: 16px; }
-.form .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
-.form .field input { border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; font-family: inherit; font-size: 14px; background: var(--bg); color: var(--text); }
-.form .field input:focus { border-color: var(--accent); outline: none; }
+.form { padding: 16px 18px; margin-top: 16px; }
 .actions { display: flex; gap: 12px; }
-.save { border: none; background: var(--accent); color: #fff; padding: 10px 20px; border-radius: 9px; cursor: pointer; font-size: 14px; font-weight: 600; }
-.save:disabled { opacity: 0.55; cursor: not-allowed; }
-.ghost { border: 1px solid var(--border); background: transparent; color: var(--text); padding: 10px 18px; border-radius: 9px; cursor: pointer; font-size: 14px; }
-.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-.tbl th, .tbl td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border); }
-.tbl th { background: var(--code-bg); font-weight: 600; color: var(--muted); font-size: 12px; }
-.tbl tr:last-child td { border-bottom: none; }
-.name { font-weight: 600; }
-.muted { color: var(--muted); }
-.op { white-space: nowrap; }
-.link { border: none; background: transparent; color: var(--accent); cursor: pointer; font-size: 13px; }
-.link.danger { color: var(--destructive); }
-.empty { text-align: center; color: var(--muted); padding: 24px 0; }
 </style>

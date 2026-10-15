@@ -19,13 +19,22 @@
         <span class="g-count">{{ g.tools.length }} 个</span>
       </div>
       <div v-for="t in g.tools" :key="t.name" class="tool-row">
-        <div class="tool-main" @click="toggle(t)">
+        <button
+          class="tool-main"
+          :aria-expanded="!!open[t.name]"
+          :aria-controls="'tool-detail-' + t.name"
+          @click="toggle(t)"
+        >
           <span class="chev" :class="{ open: open[t.name] }">▸</span>
           <span class="name mono">{{ t.name }}</span>
           <span class="desc-short">{{ t.description || '—' }}</span>
-        </div>
+        </button>
 
-        <div v-if="open[t.name] && details[t.name]" class="tool-detail">
+        <div
+          v-if="open[t.name] && details[t.name]"
+          :id="'tool-detail-' + t.name"
+          class="tool-detail"
+        >
           <div class="dt-block">
             <div class="dt-label">所属分组</div>
             <span class="tag">{{ details[t.name].group_label }}</span>
@@ -62,6 +71,9 @@
       </div>
     </div>
 
+    <div v-if="loading" class="empty" role="status">加载中…</div>
+    <div v-else-if="!groups.length && !error" class="empty" role="status">暂无注册工具。</div>
+
   </div>
 </template>
 
@@ -73,6 +85,7 @@ import { apiFetch } from '../auth'
 const groups = ref([])
 const total = ref(0)
 const error = ref('')
+const loading = ref(false)
 const open = reactive({})
 const details = reactive({})
 
@@ -80,6 +93,7 @@ onMounted(loadTools)
 
 async function loadTools() {
   error.value = ''
+  loading.value = true
   try {
     const r = await apiFetch('/api/admin/tools')
     if (!r.ok) throw new Error('加载失败')
@@ -88,6 +102,8 @@ async function loadTools() {
     total.value = data.total || 0
   } catch (e) {
     error.value = e.message || String(e)
+  } finally {
+    loading.value = false
   }
 }
 
@@ -102,41 +118,35 @@ async function toggle(t) {
   }
   open[t.name] = true
 }
-
 </script>
 
 <style scoped>
-.list-page { padding: 24px 28px; max-width: 100%; margin: 0 auto; width: 100%; }
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-.page-head h2 { margin: 0 0 4px; font-size: 18px; }
-.hint { color: var(--muted); font-size: 13px; margin: 0; max-width: 720px; }
-.hint b { color: var(--text); }
-.err { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
-
-.group-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; margin-bottom: 16px; }
-.group-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--code-bg); }
+.group-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 16px; }
+.group-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel-2); }
 .g-label { font-weight: 600; font-size: 14px; color: var(--text); }
 .g-count { font-size: 12px; color: var(--muted); }
 
 .tool-row { border-bottom: 1px solid var(--border); }
 .tool-row:last-child { border-bottom: none; }
-.tool-main { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; }
+.tool-main {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 12px 16px; text-align: left; font-family: inherit;
+  background: transparent; border: none; border-radius: 0;
+}
 .tool-main:hover { background: var(--panel-hover); }
 .chev { color: var(--muted); transition: transform 0.15s; flex: none; }
 .chev.open { transform: rotate(90deg); }
 .name { font-weight: 600; white-space: nowrap; }
-.mono { font-family: var(--mono); font-size: 12px; color: var(--accent); }
+.mono { font-family: var(--mono); font-size: 12px; color: var(--primary); }
 .desc-short { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .tool-detail { padding: 4px 16px 18px; background: var(--code-bg); border-top: 1px dashed var(--border); }
 .dt-block { margin-top: 14px; }
 .dt-label { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 6px; }
-.dt-pre { font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 0; max-height: 320px; overflow: auto; word-break: break-word; }
-.tag { display: inline-block; font-size: 11px; padding: 3px 10px; border-radius: 20px; background: var(--accent); color: #fff; }
+.dt-pre { font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; margin: 0; max-height: 320px; overflow: auto; word-break: break-word; }
 .muted { color: var(--muted); font-size: 13px; }
 .sub-tbl { width: 100%; border-collapse: collapse; font-size: 12px; }
 .sub-tbl th, .sub-tbl td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
 .sub-tbl th { font-weight: 600; color: var(--muted); background: var(--bg); }
 .sub-tbl tr:last-child td { border-bottom: none; }
-
 </style>

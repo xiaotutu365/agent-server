@@ -8,7 +8,7 @@
           对话使用默认大模型、知识库检索使用默认嵌入（与重排）模型；未配置时回退到原环境变量。
         </p>
       </div>
-      <button class="primary" @click="startCreate">+ 新增模型</button>
+      <button class="btn btn-primary" @click="startCreate">+ 新增模型</button>
     </div>
 
     <div v-if="error" class="err">{{ error }}</div>
@@ -17,6 +17,7 @@
       <button
         v-for="t in tabs"
         :key="t.value"
+        class="tab"
         :class="{ active: filter === t.value }"
         @click="setFilter(t.value)"
       >
@@ -26,8 +27,8 @@
     </div>
 
     <div class="group-card">
-      <div v-if="loading" class="muted" style="padding: 18px;">加载中…</div>
-      <div v-else-if="!models.length" class="muted" style="padding: 18px;">
+      <div v-if="loading" class="empty" role="status">加载中…</div>
+      <div v-else-if="!models.length" class="empty" role="status">
         暂无{{ typeLabel(filter) }}配置，点击右上角「新增模型」。
       </div>
       <div
@@ -61,46 +62,53 @@
 
     <!-- 新增 / 编辑表单 -->
     <div v-if="editing" class="modal-mask" @click.self="cancel">
-      <div class="modal">
-        <h3>{{ form.id ? '编辑模型' : '新增模型' }}</h3>
+      <div
+        ref="modalEl"
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="model-form-title"
+        @keydown.esc="cancel"
+      >
+        <h3 id="model-form-title">{{ form.id ? '编辑模型' : '新增模型' }}</h3>
 
-        <label class="fld">
+        <label class="field">
           <span>类型</span>
           <select v-model="form.type" :disabled="!!form.id" @change="onTypeChange">
             <option v-for="t in MODEL_TYPES" :key="t.value" :value="t.value">{{ t.label }}</option>
           </select>
         </label>
 
-        <label class="fld">
+        <label class="field">
           <span>名称 <i class="req">*</i></span>
           <input v-model="form.name" :class="{ invalid: errors.name }" @input="clearErr('name')" placeholder="如 default-llm" />
           <div class="fld-err" v-if="errors.name">{{ errors.name }}</div>
         </label>
 
-        <label class="fld">
+        <label class="field">
           <span>Base URL <i class="req">*</i></span>
           <input v-model="form.base_url" :class="{ invalid: errors.base_url }" @input="clearErr('base_url')" :placeholder="placeholderBase" />
           <div class="fld-err" v-if="errors.base_url">{{ errors.base_url }}</div>
         </label>
 
-        <label class="fld">
+        <label class="field">
           <span>API Key</span>
           <input v-model="form.api_key" type="password" :placeholder="placeholderKey" />
         </label>
 
-        <label class="fld">
+        <label class="field">
           <span>模型名 <i class="req">*</i></span>
           <input v-model="form.model" :class="{ invalid: errors.model }" @input="clearErr('model')" :placeholder="placeholderModel" />
           <div class="fld-err" v-if="errors.model">{{ errors.model }}</div>
         </label>
 
-        <label class="fld" v-if="form.type === 'embedding'">
+        <label class="field" v-if="form.type === 'embedding'">
           <span>向量维度 dim <i class="req">*</i></span>
           <input v-model.number="form.dim" type="number" min="0" step="1" :class="{ invalid: errors.dim }" @input="clearErr('dim')" placeholder="如 1536" />
           <div class="fld-err" v-if="errors.dim">{{ errors.dim }}</div>
         </label>
 
-        <label class="fld check">
+        <label class="field check">
           <input type="checkbox" v-model="form.is_default" />
           <span>设为该类型默认（对话/检索将优先使用）</span>
         </label>
@@ -108,19 +116,19 @@
         <div class="fld-sec" v-if="form.type === 'llm'">
           <div class="sec-title">高级参数（大模型）</div>
           <div class="grid2">
-            <label class="fld"><span>Temperature 温度</span><input v-model="form.extra.temperature" type="number" step="0.1" min="0" max="2" placeholder="0.3" /></label>
-            <label class="fld"><span>Top P</span><input v-model="form.extra.top_p" type="number" step="0.05" min="0" max="1" placeholder="1.0" /></label>
-            <label class="fld"><span>Max Tokens 最大输出</span><input v-model="form.extra.max_tokens" type="number" min="1" step="1" placeholder="模型默认" /></label>
-            <label class="fld"><span>Timeout 超时(秒)</span><input v-model="form.extra.timeout" type="number" min="1" step="1" placeholder="默认" /></label>
-            <label class="fld"><span>Frequency Penalty 频率惩罚</span><input v-model="form.extra.frequency_penalty" type="number" step="0.1" min="-2" max="2" placeholder="0" /></label>
-            <label class="fld"><span>Presence Penalty 存在惩罚</span><input v-model="form.extra.presence_penalty" type="number" step="0.1" min="-2" max="2" placeholder="0" /></label>
+            <label class="field"><span>Temperature 温度</span><input v-model="form.extra.temperature" type="number" step="0.1" min="0" max="2" placeholder="0.3" /></label>
+            <label class="field"><span>Top P</span><input v-model="form.extra.top_p" type="number" step="0.05" min="0" max="1" placeholder="1.0" /></label>
+            <label class="field"><span>Max Tokens 最大输出</span><input v-model="form.extra.max_tokens" type="number" min="1" step="1" placeholder="模型默认" /></label>
+            <label class="field"><span>Timeout 超时(秒)</span><input v-model="form.extra.timeout" type="number" min="1" step="1" placeholder="默认" /></label>
+            <label class="field"><span>Frequency Penalty 频率惩罚</span><input v-model="form.extra.frequency_penalty" type="number" step="0.1" min="-2" max="2" placeholder="0" /></label>
+            <label class="field"><span>Presence Penalty 存在惩罚</span><input v-model="form.extra.presence_penalty" type="number" step="0.1" min="-2" max="2" placeholder="0" /></label>
           </div>
-          <label class="fld"><span>Stop 停止词（逗号分隔）</span><input v-model="form.extra.stop" placeholder="如：stop1, stop2" /></label>
+          <label class="field"><span>Stop 停止词（逗号分隔）</span><input v-model="form.extra.stop" placeholder="如：stop1, stop2" /></label>
         </div>
 
         <div class="fld-sec" v-if="form.type === 'rerank'">
           <div class="sec-title">高级参数（重排）</div>
-          <label class="fld"><span>Top N 返回条数</span><input v-model="form.extra.top_n" type="number" min="1" step="1" placeholder="如 5" /></label>
+          <label class="field"><span>Top N 返回条数</span><input v-model="form.extra.top_n" type="number" min="1" step="1" placeholder="如 5" /></label>
         </div>
 
         <div v-if="formError" class="err" style="margin-top: 4px;">{{ formError }}</div>
@@ -130,9 +138,9 @@
         </div>
 
         <div class="modal-actions">
-          <button class="ghost" @click="cancel">取消</button>
-          <button class="ghost" :disabled="testing || !form.model" @click="testForm">测试连接</button>
-          <button class="primary" :disabled="saving" @click="save">
+          <button class="btn btn-ghost" @click="cancel">取消</button>
+          <button class="btn btn-ghost" :disabled="testing || !form.model" @click="testForm">测试连接</button>
+          <button class="btn btn-primary" :disabled="saving" @click="save">
             {{ saving ? '保存中…' : '保存' }}
           </button>
         </div>
@@ -142,7 +150,7 @@
 </template>
 
 <script setup>
-import { onMounted, ref, reactive, computed } from 'vue'
+import { nextTick, onMounted, ref, reactive, computed, watch } from 'vue'
 import { listModels, createModel, updateModel, deleteModel, testModel, testModelById, MODEL_TYPES } from '../api/models'
 
 const tabs = [{ value: 'all', label: '全部' }, ...MODEL_TYPES]
@@ -160,12 +168,18 @@ const testing = ref(false)
 const formTest = ref(null)
 const rowTests = reactive({})
 const errors = reactive({})
+const modalEl = ref(null)
 function clearErr(k) { errors[k] = '' }
 const blank = () => ({
   id: null, type: 'llm', name: '', base_url: '', api_key: '', model: '', dim: 0, is_default: false,
   extra: { temperature: '', top_p: '', max_tokens: '', timeout: '', frequency_penalty: '', presence_penalty: '', stop: '', top_n: '' },
 })
 const form = reactive(blank())
+
+// 弹窗打开时聚焦第一个输入框（键盘可达）
+watch(editing, (open) => {
+  if (open) nextTick(() => modalEl.value?.querySelector('input, select')?.focus())
+})
 
 function typeLabel(t) {
   return MODEL_TYPES.find((x) => x.value === t)?.label || t
@@ -311,61 +325,37 @@ onMounted(load)
 </script>
 
 <style scoped>
-.list-page { padding: 24px 28px; max-width: 100%; margin: 0 auto; width: 100%; }
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-.page-head h2 { margin: 0 0 4px; font-size: 18px; }
-.hint { color: var(--muted); font-size: 13px; margin: 0; max-width: 680px; }
-.hint b { color: var(--text); }
-.primary { border: none; background: var(--accent); color: #fff; padding: 9px 16px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 600; }
-.primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.err { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
 .muted { color: var(--muted); font-size: 13px; }
-
-.tabs { display: flex; gap: 8px; margin-bottom: 14px; }
-.tabs button {
-  border: 1px solid var(--border); background: var(--panel); color: var(--muted);
-  padding: 7px 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
-}
-.tabs button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 .cnt { font-size: 11px; opacity: 0.8; margin-left: 4px; }
 
-.group-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.group-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
 .model-row { border-bottom: 1px solid var(--border); padding: 14px 16px; }
 .model-row:last-child { border-bottom: none; }
-.m-head { display: flex; align-items: center; gap: 10px; }
+.m-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .m-name { font-weight: 600; font-size: 14px; }
-.badge { font-size: 11px; padding: 2px 9px; border-radius: 20px; color: #fff; }
-.badge.llm { background: #4f6ef7; }
-.badge.embedding { background: var(--success); }
-.badge.rerank { background: #b8860b; }
-.star { font-size: 12px; color: #f5a623; }
+.badge.llm { color: var(--primary); border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
+.badge.embedding { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, transparent); }
+.badge.rerank { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 40%, transparent); }
+.star { font-size: 12px; color: var(--warning); }
 .spacer { flex: 1; }
 .mini { border: 1px solid var(--border); background: transparent; color: var(--muted); padding: 4px 12px; border-radius: 7px; cursor: pointer; font-size: 12px; }
+.mini:hover { background: var(--panel-hover); color: var(--text); }
 .mini.danger { color: var(--destructive); }
 .m-meta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 12px; color: var(--muted); }
-.m-test { margin-top: 8px; font-size: 12px; padding: 6px 10px; border-radius: 8px; display: inline-block; }
+.m-test { margin-top: 8px; font-size: 12px; padding: 6px 10px; border-radius: var(--radius-sm); display: inline-block; }
 .m-test.ok { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
 .m-test.fail { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); }
-.test-result { margin-top: 6px; padding: 8px 12px; border-radius: 8px; font-size: 13px; }
+.test-result { margin-top: 6px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px; }
 .test-result.ok { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
 .test-result.fail { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); }
 
-.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.modal { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 22px; width: 440px; max-width: 92vw; }
-.modal h3 { margin: 0 0 16px; font-size: 16px; }
-.fld { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
-.fld > span { font-size: 12px; color: var(--muted); }
 .req { color: var(--destructive); font-style: normal; margin-left: 2px; }
 .fld-err { font-size: 12px; color: var(--destructive); margin-top: 4px; }
-.fld input.invalid, .fld select.invalid { border-color: var(--destructive); }
-.fld input, .fld select { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--bg); color: var(--text); font-size: 13px; font-family: inherit; }
-.fld.check { flex-direction: row; align-items: center; gap: 8px; }
-.fld.check > span { font-size: 13px; color: var(--text); }
+.field input.invalid, .field select.invalid { border-color: var(--destructive); }
 .fld-sec { border-top: 1px dashed var(--border); margin-top: 4px; padding-top: 12px; }
 .sec-title { font-size: 12px; color: var(--muted); margin-bottom: 10px; font-weight: 600; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
-.grid2 .fld { margin-bottom: 10px; }
+.grid2 .field { margin-bottom: 10px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
-.ghost { border: 1px solid var(--border); background: transparent; color: var(--text); padding: 9px 16px; border-radius: 9px; cursor: pointer; font-size: 13px; }
 .mono { font-family: var(--mono); }
 </style>

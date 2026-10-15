@@ -14,6 +14,8 @@
               :key="c.to"
               :to="c.to"
               class="navlink"
+              :class="{ active: isActive(c.to) }"
+              :aria-current="isActive(c.to) ? 'page' : undefined"
             >{{ c.label }}</router-link>
           </div>
         </div>
@@ -27,17 +29,31 @@
 </template>
 
 <script setup>
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import Icon from '../components/Icon.vue'
 
+const route = useRoute()
+
+// 按功能域分组：智能体 / 知识库 / 模型 / 工具 / 集成 / 系统（权限组织）
 const groups = [
-  { title: '对话', icon: 'bot', children: [{ to: '/', label: '智能体对话' }] },
-  { title: '知识库', icon: 'book', children: [{ to: '/admin/kb', label: '知识库管理' }] },
-  { title: '工具', icon: 'toolbox', children: [{ to: '/admin/tools', label: '工具列表' }] },
-  { title: '模型', icon: 'brain', children: [{ to: '/admin/models', label: '模型配置' }] },
-  { title: 'MCP', icon: 'plug', children: [{ to: '/admin/mcp', label: 'MCP 服务器' }] },
-  { title: '系统', icon: 'settings', children: [
+  { title: '智能体', icon: 'bot', children: [
+      { to: '/', label: '智能体对话' },
       { to: '/admin/agents', label: '智能体管理' },
+    ] },
+  { title: '知识库', icon: 'book', children: [
+      { to: '/admin/kb', label: '知识库管理' },
+    ] },
+  { title: '模型', icon: 'brain', children: [
+      { to: '/admin/models', label: '模型配置' },
+    ] },
+  { title: '工具', icon: 'toolbox', children: [
+      { to: '/admin/tools', label: '工具列表' },
+    ] },
+  { title: '集成', icon: 'plug', children: [
+      { to: '/admin/mcp', label: 'MCP 服务器' },
+    ] },
+  { title: '系统', icon: 'settings', children: [
       { to: '/admin/roles', label: '角色管理' },
       { to: '/admin/departments', label: '部门管理' },
       { to: '/admin/users', label: '用户管理' },
@@ -48,6 +64,18 @@ const openMap = reactive({})
 groups.forEach(g => { openMap[g.title] = true })
 
 function toggle(t) { openMap[t] = !openMap[t] }
+
+// 高亮：首页精确匹配（否则 / 是所有路径前缀会常亮），其余前缀匹配以覆盖子路由
+function isActive(to) {
+  if (to === '/') return route.path === '/'
+  return route.path === to || route.path.startsWith(to + '/')
+}
+
+// 路由变化时自动展开当前项所在分组
+watch(() => route.path, () => {
+  const g = groups.find(gr => gr.children.some(c => isActive(c.to)))
+  if (g) openMap[g.title] = true
+}, { immediate: true })
 </script>
 
 <style scoped>
@@ -75,12 +103,14 @@ function toggle(t) { openMap[t] = !openMap[t] }
   border-left: 2px solid transparent; transition: background-color .15s ease, color .15s ease;
 }
 .navlink:hover { background: var(--panel-hover); color: var(--text); }
-.navlink.router-link-active {
+.navlink.active {
   background: color-mix(in srgb, var(--primary) 12%, transparent);
   color: var(--primary-strong); border-left-color: var(--primary-strong); font-weight: 600;
 }
 
 .main { flex: 1; min-width: 0; padding: 16px; }
+/* 满高工作区页面（知识库工作区）：去掉页边距，内边距由页面组件自管 */
+.main:has(.kb-workspace) { padding: 0; display: flex; }
 
 @media (max-width: 760px) {
   .layout { flex-direction: column; min-height: 0; }
@@ -90,5 +120,6 @@ function toggle(t) { openMap[t] = !openMap[t] }
   .group-head { min-height: 40px; }
   .group-items { padding: 0 0 4px 14px; }
   .main { padding: 12px; overflow: auto; }
+  .main:has(.kb-workspace) { padding: 12px; }
 }
 </style>

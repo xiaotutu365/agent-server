@@ -5,7 +5,7 @@
         <h2>用户管理</h2>
         <p class="hint">仅管理员可访问。可创建普通用户（用于前台聊天）或更多管理员，并关联角色与部门。</p>
       </div>
-      <button class="primary" @click="openAdd">+ 新建用户</button>
+      <button class="btn btn-primary" @click="openAdd">+ 新建用户</button>
     </div>
 
     <div v-if="error" class="err">{{ error }}</div>
@@ -33,8 +33,8 @@
         </select>
       </label>
       <div class="actions">
-        <button class="save" :disabled="creating" @click="create">{{ creating ? '创建中…' : '创建' }}</button>
-        <button class="ghost" @click="showForm = false">取消</button>
+        <button class="btn btn-primary" :disabled="creating" @click="create">{{ creating ? '创建中…' : '创建' }}</button>
+        <button class="btn btn-ghost" @click="showForm = false">取消</button>
       </div>
     </div>
 
@@ -58,12 +58,12 @@
         <input v-model="editForm.password" type="password" placeholder="留空保持不变" />
       </label>
       <div class="actions">
-        <button class="save" :disabled="saving" @click="saveEdit">{{ saving ? '保存中…' : '保存' }}</button>
-        <button class="ghost" @click="editing = null">取消</button>
+        <button class="btn btn-primary" :disabled="saving" @click="saveEdit">{{ saving ? '保存中…' : '保存' }}</button>
+        <button class="btn btn-ghost" @click="editing = null">取消</button>
       </div>
     </div>
 
-    <div class="card">
+    <div class="card tbl-card">
       <table class="tbl">
         <thead>
           <tr><th>用户名</th><th>角色</th><th>部门</th><th>创建时间</th><th class="op">操作</th></tr>
@@ -80,11 +80,12 @@
             <td class="muted">{{ fmt(u.created_at) }}</td>
             <td class="op">
               <button class="link" @click="openEdit(u)">编辑</button>
-              <button v-if="u.id !== meId" class="link danger" @click="remove(u)">删除</button>
+              <button v-if="u.id !== meId" class="link link-danger" @click="remove(u)">删除</button>
               <span v-else class="muted">当前账号</span>
             </td>
           </tr>
-          <tr v-if="!users.length"><td colspan="5" class="empty">暂无用户</td></tr>
+          <tr v-if="loading"><td colspan="5" class="empty" role="status">加载中…</td></tr>
+          <tr v-else-if="!users.length"><td colspan="5" class="empty" role="status">暂无用户</td></tr>
         </tbody>
       </table>
     </div>
@@ -99,6 +100,7 @@ const users = ref([])
 const roles = ref([])
 const departments = ref([])
 const error = ref('')
+const loading = ref(false)
 const showForm = ref(false)
 const creating = ref(false)
 const form = ref({ username: '', password: '', role_id: '', department_id: null })
@@ -107,10 +109,14 @@ const saving = ref(false)
 const editForm = ref({ role_id: '', department_id: null, password: '' })
 const meId = ref((getUser() || {}).id)
 
-onMounted(load)
+onMounted(() => {
+  load()
+  form.value.role_id = defaultRoleId()
+})
 
 async function load() {
   error.value = ''
+  loading.value = true
   try {
     const [ru, rr, rd] = await Promise.all([
       apiFetch('/api/admin/users'),
@@ -122,6 +128,8 @@ async function load() {
     departments.value = (await rd.json()).departments || []
   } catch (e) {
     error.value = e.message || String(e)
+  } finally {
+    loading.value = false
   }
 }
 
@@ -159,6 +167,11 @@ async function create() {
   } finally {
     creating.value = false
   }
+}
+
+function openAdd() {
+  showForm.value = true
+  form.value.role_id = defaultRoleId()
 }
 
 function openEdit(u) {
@@ -219,36 +232,12 @@ function fmt(iso) {
   const p = (n) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
-
-onMounted(() => { form.value.role_id = defaultRoleId() })
 </script>
 
 <style scoped>
-.list-page { padding: 24px 28px; max-width: 100%; margin: 0 auto; width: 100%; }
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-.page-head h2 { margin: 0 0 4px; font-size: 18px; }
-.hint { color: var(--muted); font-size: 13px; margin: 0; }
-.primary { flex: none; border: none; background: var(--accent); color: #fff; padding: 10px 18px; border-radius: 9px; cursor: pointer; font-size: 14px; font-weight: 600; }
-.err { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
-.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-top: 16px; }
-.form .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
-.form .field input, .form .field select { border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; font-family: inherit; font-size: 14px; background: var(--bg); color: var(--text); }
-.form .field input:focus, .form .field select:focus { border-color: var(--accent); outline: none; }
+.form { padding: 16px 18px; margin-top: 16px; }
 .edit-title { font-weight: 600; margin-bottom: 12px; font-size: 14px; }
 .actions { display: flex; gap: 12px; }
-.save { border: none; background: var(--accent); color: #fff; padding: 10px 20px; border-radius: 9px; cursor: pointer; font-size: 14px; font-weight: 600; }
-.save:disabled { opacity: 0.55; cursor: not-allowed; }
-.ghost { border: 1px solid var(--border); background: transparent; color: var(--text); padding: 10px 18px; border-radius: 9px; cursor: pointer; font-size: 14px; }
-.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-.tbl th, .tbl td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border); }
-.tbl th { background: var(--code-bg); font-weight: 600; color: var(--muted); font-size: 12px; }
-.tbl tr:last-child td { border-bottom: none; }
-.name { font-weight: 600; }
-.muted { color: var(--muted); }
-.tag { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 20px; background: var(--code-bg); color: var(--muted); }
 .tag.on { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
-.op { white-space: nowrap; }
-.link { border: none; background: transparent; color: var(--accent); cursor: pointer; font-size: 13px; margin-right: 8px; }
-.link.danger { color: var(--destructive); }
-.empty { text-align: center; color: var(--muted); padding: 24px 0; }
+.op { display: flex; align-items: center; gap: 10px; }
 </style>

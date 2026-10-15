@@ -28,8 +28,8 @@
     <div v-if="selectedAgentId && changed" class="savebar">
       <span class="changed">{{ changedCount }} 项改动未保存（{{ currentName }}）</span>
       <span class="spacer"></span>
-      <button class="ghost" @click="revert">撤销</button>
-      <button class="save" :disabled="saving" @click="saveServers">
+      <button class="btn btn-ghost" @click="revert">撤销</button>
+      <button class="btn btn-primary" :disabled="saving" @click="saveServers">
         {{ saving ? '保存中…' : '保存并热重建' }}
       </button>
       <span v-if="savedMsg" class="saved">{{ savedMsg }}</span>
@@ -150,20 +150,11 @@ async function saveServers() {
 </script>
 
 <style scoped>
-.list-page { padding: 24px 28px; max-width: 100%; margin: 0 auto; width: 100%; }
-.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
-.page-head h2 { margin: 0 0 4px; font-size: 18px; }
-.hint { color: var(--muted); font-size: 13px; margin: 0; max-width: 720px; }
-.hint b { color: var(--text); }
-.err { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
+.err { margin-bottom: 12px; }
 
 .agent-pick { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; font-size: 13px; color: var(--text); }
-.agent-pick select { border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-family: inherit; font-size: 13px; background: var(--panel); color: var(--text); }
 .savebar { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
-.changed { color: #b45309; font-size: 13px; }
-.save { border: none; background: var(--accent); color: #fff; padding: 9px 18px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 600; }
-.save:disabled { opacity: 0.55; cursor: not-allowed; }
-.ghost { border: 1px solid var(--border); background: transparent; color: var(--text); padding: 9px 14px; border-radius: 9px; cursor: pointer; font-size: 13px; }
+.changed { color: var(--warning); font-size: 13px; }
 .saved { color: var(--success); font-size: 13px; }
 .spacer { flex: 1; }
 .muted { color: var(--muted); font-size: 13px; }

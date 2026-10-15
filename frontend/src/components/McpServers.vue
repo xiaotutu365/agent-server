@@ -8,7 +8,7 @@
           可对每个服务器设 <b>allow_roles</b> 做越权闸（如仅 admin 可调）。
         </p>
       </div>
-      <button class="add" @click="openAdd">+ 新增服务器</button>
+      <button class="btn btn-primary btn-sm" @click="openAdd">+ 新增服务器</button>
     </div>
 
     <div v-if="!list.length" class="muted empty">
@@ -29,7 +29,7 @@
           {{ testing === i ? '连接中…' : '测试连接' }}
         </button>
         <button class="link" @click="openEdit(i)">编辑</button>
-        <button class="link danger" @click="removeServer(i)">删除</button>
+        <button class="link link-danger" @click="removeServer(i)">删除</button>
       </div>
       <div class="srv-meta mono">
         <template v-if="s.transport === 'stdio'">
@@ -53,8 +53,15 @@
 
     <!-- 新增 / 编辑 弹窗 -->
     <div v-if="showForm" class="modal-mask" @click.self="showForm = false">
-      <div class="modal">
-        <h3>{{ editingIndex >= 0 ? '编辑 MCP 服务器' : '新增 MCP 服务器' }}</h3>
+      <div
+        ref="modalEl"
+        class="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="mcp-form-title"
+        @keydown.esc="showForm = false"
+      >
+        <h3 id="mcp-form-title">{{ editingIndex >= 0 ? '编辑 MCP 服务器' : '新增 MCP 服务器' }}</h3>
         <div v-if="formError" class="err">{{ formError }}</div>
 
         <label class="field">
@@ -111,8 +118,8 @@
           <button class="link" @click="testForm">测试连接</button>
           <span v-if="formTest" class="form-test" :class="formTestOk ? 'ok' : 'bad'">{{ formTest }}</span>
           <span class="spacer"></span>
-          <button class="ghost" @click="showForm = false">取消</button>
-          <button class="save" @click="saveForm">确定</button>
+          <button class="btn btn-ghost" @click="showForm = false">取消</button>
+          <button class="btn btn-primary" @click="saveForm">确定</button>
         </div>
       </div>
     </div>
@@ -120,7 +127,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref } from 'vue'
+import { computed, nextTick, reactive, ref, watch } from 'vue'
 import { apiFetch } from '../auth'
 
 const props = defineProps({ modelValue: { type: Array, default: () => [] } })
@@ -129,6 +136,7 @@ const emit = defineEmits(['update:modelValue'])
 const list = computed(() => props.modelValue || [])
 const testing = ref(-1)
 const previews = reactive({})
+const modalEl = ref(null)
 
 const showForm = ref(false)
 const editingIndex = ref(-1)
@@ -139,6 +147,11 @@ const form = reactive({
 const formError = ref('')
 const formTest = ref('')
 const formTestOk = ref(false)
+
+// 弹窗打开时聚焦第一个输入框（键盘可达）
+watch(showForm, (open) => {
+  if (open) nextTick(() => modalEl.value?.querySelector('input, select')?.focus())
+})
 
 function commit(arr) { emit('update:modelValue', arr) }
 
@@ -274,41 +287,29 @@ function removeServer(i) {
 <style scoped>
 .mcp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
 .mcp-head h3 { margin: 0 0 4px; font-size: 15px; }
-.hint { color: var(--muted); font-size: 13px; margin: 0; max-width: 640px; }
-.hint b { color: var(--text); }
-.add { border: none; background: var(--accent); color: #fff; padding: 9px 16px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 600; white-space: nowrap; }
+.mcp-head .hint { max-width: 640px; }
+.mcp-head .hint b { color: var(--text); }
 .empty { margin: 12px 0; }
-.srv-card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin-bottom: 12px; }
+.srv-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 12px 16px; margin-bottom: 12px; }
 .srv-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .srv-name { font-weight: 600; font-size: 13px; }
 .spacer { flex: 1; }
-.badge { font-size: 11px; padding: 2px 9px; border-radius: 20px; background: var(--code-bg); color: var(--muted); border: 1px solid var(--border); }
+.badge { font-size: 11px; padding: 2px 9px; border-radius: 20px; background: var(--panel-2); color: var(--muted); border: 1px solid var(--border); }
 .badge.stdio { color: var(--primary); }
 .badge.sse, .badge.streamable_http { color: var(--cta); }
 .badge.ok { color: var(--success); border-color: var(--success); }
 .badge.off { color: var(--destructive); border-color: var(--destructive); }
-.badge.role { color: #b45309; border-color: #b45309; }
-.link { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 13px; padding: 2px 4px; }
-.link.danger { color: var(--destructive); }
+.badge.role { color: var(--warning); border-color: var(--warning); }
 .srv-meta { color: var(--muted); font-size: 12px; margin-top: 6px; }
 .srv-preview { margin-top: 8px; font-size: 12px; color: var(--text); display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .chip { background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 1px 7px; }
 .err-inline { color: var(--destructive); }
 .muted { color: var(--muted); font-size: 13px; }
 
-.modal-mask { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: center; justify-content: center; z-index: 50; }
-.modal { background: var(--bg); border: 1px solid var(--border); border-radius: 14px; padding: 22px 24px; width: 560px; max-width: 92vw; max-height: 90vh; overflow: auto; }
-.modal h3 { margin: 0 0 12px; font-size: 16px; }
-.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
 .field.col textarea { min-height: 60px; }
 .field .sub { font-size: 12px; color: var(--muted); }
-.field.check { flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
-.field input, .field textarea, .field select { border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; font-family: inherit; font-size: 14px; background: var(--panel); color: var(--text); }
-.field input:focus, .field textarea:focus, .field select:focus { border-color: var(--accent); outline: none; }
 .modal-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .form-test { font-size: 12px; }
 .form-test.ok { color: var(--success); }
 .form-test.bad { color: var(--destructive); }
-.save { border: none; background: var(--accent); color: #fff; padding: 9px 18px; border-radius: 9px; cursor: pointer; font-size: 13px; font-weight: 600; }
-.ghost { border: 1px solid var(--border); background: transparent; color: var(--text); padding: 9px 14px; border-radius: 9px; cursor: pointer; font-size: 13px; }
 </style>

@@ -5,12 +5,12 @@
         <h2>Agent 管理</h2>
         <p class="hint">管理多个 Agent 配置；聊天固定使用「默认」标记的那个。新增/编辑可配置基本信息、工具关联与 HITL。</p>
       </div>
-      <button class="primary" @click="goNew">+ 新建 Agent</button>
+      <button class="btn btn-primary" @click="goNew">+ 新建 Agent</button>
     </div>
 
     <div v-if="error" class="err">{{ error }}</div>
 
-    <div class="card">
+    <div class="card tbl-card">
       <table class="tbl">
         <thead>
           <tr>
@@ -35,18 +35,19 @@
               <span class="tag" :class="{ on: a.kb_enabled }">知识库 {{ a.kb_enabled ? '开' : '关' }}</span>
             </td>
             <td>
-              <span v-if="a.is_default" class="badge-def">默认</span>
+              <span v-if="a.is_default" class="badge badge-primary">默认</span>
               <span v-else class="muted">—</span>
             </td>
             <td class="muted">{{ fmt(a.updated_at) }}</td>
             <td class="op">
               <button class="link" @click="goEdit(a.id)">编辑</button>
               <button v-if="!a.is_default" class="link" @click="setDefault(a.id)">设为默认</button>
-              <button class="link danger" @click="remove(a)">删除</button>
+              <button class="link link-danger" @click="remove(a)">删除</button>
             </td>
           </tr>
-          <tr v-if="!agents.length">
-            <td colspan="8" class="empty">暂无 Agent，点击右上角「新建 Agent」。</td>
+          <tr v-if="loading"><td colspan="8" class="empty" role="status">加载中…</td></tr>
+          <tr v-else-if="!agents.length">
+            <td colspan="8" class="empty" role="status">暂无 Agent，点击右上角「新建 Agent」。</td>
           </tr>
         </tbody>
       </table>
@@ -62,11 +63,13 @@ import { apiFetch } from '../auth'
 const router = useRouter()
 const agents = ref([])
 const error = ref('')
+const loading = ref(false)
 
 onMounted(load)
 
 async function load() {
   error.value = ''
+  loading.value = true
   try {
     const r = await apiFetch('/api/admin/agents')
     if (!r.ok) throw new Error('加载失败')
@@ -74,6 +77,8 @@ async function load() {
     agents.value = data.agents || []
   } catch (e) {
     error.value = e.message || String(e)
+  } finally {
+    loading.value = false
   }
 }
 
@@ -118,40 +123,7 @@ function fmt(iso) {
 </script>
 
 <style scoped>
-.list-page { padding: 24px 28px; max-width: 100%; margin: 0 auto; width: 100%; }
-.page-head {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  gap: 16px; margin-bottom: 18px;
-}
-.page-head h2 { margin: 0 0 4px; font-size: 18px; }
-.hint { color: var(--muted); font-size: 13px; margin: 0; max-width: 640px; }
-.primary {
-  flex: none; border: none; background: var(--accent); color: #fff;
-  padding: 10px 18px; border-radius: 9px; cursor: pointer; font-size: 14px; font-weight: 600;
-}
-.err { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
-.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
-.tbl th, .tbl td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border); }
-.tbl th { background: var(--code-bg); font-weight: 600; color: var(--muted); font-size: 12px; }
-.tbl tr:last-child td { border-bottom: none; }
-.name { font-weight: 600; }
-.mono { font-family: var(--mono); font-size: 12px; color: var(--accent); }
-.muted { color: var(--muted); }
-.tag {
-  display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 20px;
-  background: var(--code-bg); color: var(--muted); margin-right: 6px;
-}
+.tag { margin-right: 6px; }
 .tag.on { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
-.badge-def {
-  display: inline-block; font-size: 11px; padding: 2px 10px; border-radius: 20px;
-  background: var(--accent); color: #fff;
-}
-.op { white-space: nowrap; }
-.link {
-  border: none; background: transparent; color: var(--accent); cursor: pointer;
-  font-size: 13px; padding: 0 8px 0 0; margin-right: 4px;
-}
-.link.danger { color: var(--destructive); }
-.empty { text-align: center; color: var(--muted); padding: 30px 0; }
+.op { display: flex; align-items: center; gap: 10px; }
 </style>

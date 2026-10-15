@@ -6,6 +6,7 @@
     </div>
 
     <div v-if="loadError" class="err">{{ loadError }}</div>
+    <div v-else-if="loading" class="empty" role="status">加载中…</div>
 
     <section class="card">
       <h3>基本信息</h3>
@@ -39,19 +40,24 @@
       <p class="hint">点击分组标题可折叠；记忆与知识库另有总开关。</p>
 
       <div v-for="g in toolGroups" :key="g.key" class="group" :class="{ collapsed: isCollapsed('tool-' + g.key) }">
-        <div class="group-head" @click="toggleCollapse('tool-' + g.key)">
-          <span class="group-label">
-            <span class="caret">{{ isCollapsed('tool-' + g.key) ? '▸' : '▾' }}</span>
-            {{ g.label }}
+        <div class="group-head">
+          <button
+            class="group-toggle"
+            :aria-expanded="!isCollapsed('tool-' + g.key)"
+            :aria-controls="'tools-' + g.key"
+            @click="toggleCollapse('tool-' + g.key)"
+          >
+            <span class="caret" aria-hidden="true">{{ isCollapsed('tool-' + g.key) ? '▸' : '▾' }}</span>
+            <span class="group-label">{{ g.label }}</span>
             <span class="count">{{ g.tools.length }}</span>
-          </span>
-          <label v-if="g.key === 'memory' || g.key === 'kb'" class="master" @click.stop>
+          </button>
+          <label v-if="g.key === 'memory' || g.key === 'kb'" class="master">
             <input type="checkbox" :checked="config[g.key + '_enabled']"
                    @change="toggleGroup(g.key, $event.target.checked)" />
             启用该组
           </label>
         </div>
-        <div class="tools" v-show="!isCollapsed('tool-' + g.key)">
+        <div :id="'tools-' + g.key" class="tools" v-show="!isCollapsed('tool-' + g.key)">
           <label v-for="t in g.tools" :key="t.name" class="tool"
                  :class="{ disabled: isGroupDisabled(g.key) }">
             <input type="checkbox"
@@ -69,13 +75,18 @@
       <h3>人机交互（HITL）中断配置</h3>
       <p class="hint">点击分组标题可折叠；勾选「执行前需确认」的工具并选择允许的决策类型。</p>
       <div v-for="g in toolGroups" :key="'h' + g.key" class="group" :class="{ collapsed: isCollapsed('hitl-' + g.key) }">
-        <div class="group-head" @click="toggleCollapse('hitl-' + g.key)">
-          <span class="group-label">
-            <span class="caret">{{ isCollapsed('hitl-' + g.key) ? '▸' : '▾' }}</span>
-            {{ g.label }}
-          </span>
+        <div class="group-head">
+          <button
+            class="group-toggle"
+            :aria-expanded="!isCollapsed('hitl-' + g.key)"
+            :aria-controls="'hitl-' + g.key"
+            @click="toggleCollapse('hitl-' + g.key)"
+          >
+            <span class="caret" aria-hidden="true">{{ isCollapsed('hitl-' + g.key) ? '▸' : '▾' }}</span>
+            <span class="group-label">{{ g.label }}</span>
+          </button>
         </div>
-        <div class="tools" v-show="!isCollapsed('hitl-' + g.key)">
+        <div :id="'hitl-' + g.key" class="tools" v-show="!isCollapsed('hitl-' + g.key)">
           <div v-for="t in g.tools" :key="'h' + t.name" class="hitl-row">
             <label class="tool">
               <input type="checkbox" :checked="isHitl(t.name)"
@@ -108,11 +119,11 @@
     </section>
 
     <div class="actions">
-      <button class="save" :disabled="saving || validationErrors.length" @click="save">
+      <button class="btn btn-primary" :disabled="saving || validationErrors.length" @click="save">
         {{ saving ? '保存中…' : '保存并生效' }}
       </button>
-      <button v-if="!isNew" class="del" :disabled="saving" @click="remove">删除</button>
-      <button class="ghost" @click="back">返回列表</button>
+      <button v-if="!isNew" class="btn btn-danger" :disabled="saving" @click="remove">删除</button>
+      <button class="btn btn-ghost" @click="back">返回列表</button>
       <span v-if="validationErrors.length" class="blocked">请先修正上方校验项</span>
       <span v-else-if="!changes.length && !isNew" class="noop">没有改动</span>
       <span v-else-if="savedMsg" class="saved">{{ savedMsg }}</span>
@@ -145,6 +156,7 @@ const config = reactive({
 })
 const original = ref(null)
 const toolGroups = ref([])
+const loading = ref(false)
 const saving = ref(false)
 const savedMsg = ref('')
 const loadError = ref('')
@@ -162,6 +174,7 @@ onMounted(load)
 
 async function load() {
   loadError.value = ''
+  loading.value = true
   try {
     const url = isNew.value ? '/api/admin/agents/template' : `/api/admin/agents/${agentId.value}`
     const r = await apiFetch(url)
@@ -173,6 +186,8 @@ async function load() {
     original.value = JSON.parse(JSON.stringify(config))
   } catch (e) {
     loadError.value = e.message || String(e)
+  } finally {
+    loading.value = false
   }
 }
 
@@ -294,9 +309,8 @@ async function save() {
     }
     const url = isNew.value ? '/api/admin/agents' : `/api/admin/agents/${agentId.value}`
     const method = isNew.value ? 'POST' : 'PUT'
-    const r = await fetch(url, {
+    const r = await apiFetch(url, {
       method,
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     })
     if (!r.ok) throw new Error('保存失败')
@@ -341,33 +355,30 @@ function back() {
   overflow-y: auto; padding: 24px 28px;
 }
 .admin-head h2 { margin: 0 0 4px; font-size: 18px; }
-.hint { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
-.err, .err { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); padding: 10px 14px; border-radius: 8px; margin-bottom: 12px; font-size: 13px; }
-.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-top: 16px; }
+.card { padding: 16px 18px; margin-top: 16px; }
 .card h3 { margin: 0 0 10px; font-size: 15px; }
-.field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
 .field.col textarea { min-height: 160px; }
-.field.check { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--text); }
-.field input, .field textarea {
-  border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px;
-  font-family: inherit; font-size: 14px; background: var(--bg); color: var(--text); resize: vertical;
-}
-.field input:focus, .field textarea:focus { border-color: var(--accent); outline: none; }
 .val-err { margin: 4px 0 0; padding-left: 18px; color: var(--destructive); font-size: 13px; }
 .val-err li { margin: 2px 0; }
 .group { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; }
 .group:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
-.group-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; cursor: pointer; user-select: none; }
+.group-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
 .group.collapsed .group-head { margin-bottom: 0; }
-.group-label { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+.group-toggle {
+  display: flex; align-items: center; gap: 8px; flex: 1; min-height: 32px;
+  background: transparent; border: none; padding: 2px 4px; margin: -2px -4px;
+  border-radius: var(--radius-sm); font-family: inherit; text-align: left;
+}
+.group-toggle:hover { background: var(--panel-hover); }
+.group-label { font-weight: 600; font-size: 14px; }
 .caret { display: inline-block; width: 12px; color: var(--muted); font-size: 11px; }
 .count { font-size: 11px; color: var(--muted); background: var(--code-bg); border-radius: 10px; padding: 1px 8px; font-weight: 400; }
-.master { font-size: 13px; color: var(--text); display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.master { font-size: 13px; color: var(--text); display: flex; align-items: center; gap: 6px; cursor: pointer; flex: none; }
 .tools { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .tool { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 5px 0; }
 .tool input[type="checkbox"] { width: 15px; height: 15px; margin: 0; flex: none; }
-.tool.disabled { opacity: 0.45; cursor: not-allowed; }
-.tool-name { font-family: var(--mono); font-size: 12px; color: var(--accent); flex: none; width: 170px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tool.disabled { opacity: 0.45; }
+.tool-name { font-family: var(--mono); font-size: 12px; color: var(--primary); flex: none; width: 170px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tool-desc { color: var(--muted); flex: 1; min-width: 0; }
 .hitl-row { display: flex; align-items: center; gap: 12px; padding: 4px 0; flex-wrap: wrap; }
 .decisions { display: flex; gap: 12px; flex-wrap: wrap; }
@@ -375,11 +386,6 @@ function back() {
 .preview ul { margin: 0; padding-left: 18px; font-size: 13px; }
 .preview li { margin: 4px 0; color: var(--text); }
 .actions { margin: 20px 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.save { border: none; background: var(--accent); color: #fff; padding: 11px 22px; border-radius: 10px; cursor: pointer; font-size: 14px; font-weight: 600; }
-.save:disabled { opacity: 0.55; cursor: not-allowed; }
-.del { border: 1px solid var(--destructive); background: transparent; color: var(--destructive); padding: 11px 18px; border-radius: 10px; cursor: pointer; font-size: 14px; }
-.del:disabled { opacity: 0.5; cursor: not-allowed; }
-.ghost { border: 1px solid var(--border); background: transparent; color: var(--text); padding: 11px 18px; border-radius: 10px; cursor: pointer; font-size: 14px; }
 .saved { color: var(--success); font-size: 13px; }
 .blocked { color: var(--destructive); font-size: 13px; }
 .noop { color: var(--muted); font-size: 13px; }

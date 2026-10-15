@@ -236,6 +236,9 @@ input:focus, select:focus, textarea:focus {
   border-color: var(--primary); outline: 2px solid color-mix(in srgb, var(--primary) 35%, transparent); outline-offset: 0;
 }
 
+/* 复选框行字段（ModelConfig / AgentEdit / McpServers 共用） */
+.field.check { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--text); }
+
 /* 页面通用头部 */
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .page-head h2 { margin: 0 0 4px; font-size: 18px; }
@@ -243,6 +246,8 @@ input:focus, select:focus, textarea:focus {
 .hint b { color: var(--text-2); }
 
 /* 表格（通用卡片表格） */
+.list-page { padding: 24px 28px; max-width: 100%; margin: 0 auto; width: 100%; }
+.tbl-card { overflow: hidden; } /* 表格贴边时裁掉表头底色，窄屏由响应式规则放开横向滚动 */
 .tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tbl th, .tbl td { padding: 11px 14px; text-align: left; border-bottom: 1px solid var(--border); }
 .tbl th { background: var(--panel-2); font-weight: 600; color: var(--muted); font-size: 12px; }
@@ -260,7 +265,7 @@ input:focus, select:focus, textarea:focus {
 /* tabs */
 .tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
 .tabs .tab { border: 1px solid var(--border); background: var(--panel); color: var(--muted); padding: 7px 14px; border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; font-family: inherit; }
-.tabs .tab.active { background: var(--primary-strong); color: #fff; border-color: var(--primary-strong); }
+.tabs .tab.active { background: var(--primary-strong); color: var(--on-primary); border-color: var(--primary-strong); }
 
 /* ---------- Markdown 内容通用样式 ---------- */
 .markdown p { margin: 6px 0; }
