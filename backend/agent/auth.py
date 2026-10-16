@@ -11,6 +11,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import time
 import uuid
@@ -89,6 +90,20 @@ def decode_token(token: str) -> dict | None:
         return payload
     except Exception:
         return None
+
+
+# ---------- 登出黑名单（内存态；token 自然过期后随之清理） ----------
+_REVOKED: dict[str, int] = {}  # token -> exp（unix 秒）
+
+
+async def logout_token(token: str) -> None:
+    """将 token 加入黑名单；顺带清理已过期条目，避免字典无限增长。"""
+    payload = decode_token(token)
+    exp = payload.get("exp", 0) if payload else 0
+    now = int(time.time())
+    for k in [k for k, v in _REVOKED.items() if v <= now]:
+        _REVOKED.pop(k, None)
+    _REVOKED[token] = max(exp, now)
 
 
 # ---------- 角色 / 部门 表 ----------
@@ -256,11 +271,17 @@ async def init_users_table():
             )"""
         )
         # 兼容已存在的旧表：补列（已存在则忽略错误）
-        for col in ("role_id TEXT", "department_id TEXT"):
+        for col in ("role_id TEXT", "department_id TEXT",
+                    "email TEXT", "phone TEXT", "full_name TEXT"):
             try:
                 await conn.execute(f"ALTER TABLE users ADD COLUMN {col}")
             except Exception:
                 pass
+        # 邮箱唯一（仅非空值参与约束）
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email "
+            "ON users(email) WHERE email IS NOT NULL AND email <> ''"
+        )
         await conn.commit()
 
 
@@ -300,6 +321,9 @@ def _row_to_user(row) -> dict:
         "department_name": _cell(row, "department_name"),
         "disabled": bool(row["disabled"]),
         "created_at": row["created_at"],
+        "email": _cell(row, "email"),
+        "phone": _cell(row, "phone"),
+        "full_name": _cell(row, "full_name"),
     }
 
 
@@ -323,15 +347,73 @@ async def verify_login(username: str, password: str) -> dict | None:
     return _row_to_user(row)
 
 
+# ---------- 字段校验（服务端为准；前端沿用同一规则做即时反馈） ----------
+_USERNAME_RE = re.compile(r"[a-zA-Z0-9_-]{2,32}")
+_EMAIL_RE = re.compile(r"[^@\s]+@[^@\s]+\.[^@\s]+")
+_PHONE_RE = re.compile(r"\+?\d{5,15}")
+
+
+def _validate_username(username: str) -> str:
+    name = (username or "").strip()
+    if not name:
+        raise ValueError("用户名不能为空")
+    if not _USERNAME_RE.fullmatch(name):
+        raise ValueError("用户名需为 2–32 位字母、数字、下划线或连字符")
+    return name
+
+
+def _validate_password(password: str) -> str:
+    if not password:
+        raise ValueError("密码不能为空")
+    if len(password) < 6 or len(password) > 64:
+        raise ValueError("密码长度需为 6–64 位")
+    if not re.search(r"[A-Za-z]", password) or not re.search(r"\d", password):
+        raise ValueError("密码需同时包含字母和数字")
+    return password
+
+
+def _validate_email(email: str | None) -> str | None:
+    e = (email or "").strip().lower()
+    if not e:
+        return None
+    if len(e) > 254 or not _EMAIL_RE.fullmatch(e):
+        raise ValueError("邮箱格式不正确")
+    return e
+
+
+def _validate_phone(phone: str | None) -> str | None:
+    p = (phone or "").strip()
+    if not p:
+        return None
+    if not _PHONE_RE.fullmatch(re.sub(r"[\s\-()]", "", p)):
+        raise ValueError("电话格式不正确（可含 +、数字、空格、连字符、括号）")
+    return p
+
+
+def _validate_full_name(full_name: str | None) -> str | None:
+    n = (full_name or "").strip()
+    if not n:
+        return None
+    if len(n) > 50:
+        raise ValueError("姓名不能超过 50 个字符")
+    return n
+
+
 async def create_user(
     username: str,
     password: str,
     role: str = "user",
     role_id: str | None = None,
     department_id: str | None = None,
+    email: str | None = None,
+    phone: str | None = None,
+    full_name: str | None = None,
 ) -> dict:
-    if not username or not password:
-        raise ValueError("用户名和密码不能为空")
+    username = _validate_username(username)
+    password = _validate_password(password)
+    email = _validate_email(email)
+    phone = _validate_phone(phone)
+    full_name = _validate_full_name(full_name)
     # 以 role_id 为准解析角色 key；未给则回退到 role 字符串
     if role_id:
         r = await get_role(role_id)
@@ -342,13 +424,20 @@ async def create_user(
     if role_id is None:
         ar = await get_role_by_key(role)
         role_id = ar["id"] if ar else None
+    if email:
+        async with aiosqlite.connect(DB_PATH) as conn:
+            conn.row_factory = aiosqlite.Row
+            cur = await conn.execute("SELECT id FROM users WHERE email=?", (email,))
+            if await cur.fetchone():
+                raise ValueError("邮箱已被使用")
     async with aiosqlite.connect(DB_PATH) as conn:
         try:
             await conn.execute(
-                "INSERT INTO users (id,username,password_hash,role,role_id,department_id,disabled,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT INTO users (id,username,password_hash,role,role_id,department_id,"
+                "email,phone,full_name,disabled,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (str(uuid.uuid4()), username, _hash_password(password), role, role_id,
-                 department_id, 0, datetime.now(timezone.utc).isoformat()),
+                 department_id, email, phone, full_name, 0,
+                 datetime.now(timezone.utc).isoformat()),
             )
             await conn.commit()
         except aiosqlite.IntegrityError:
@@ -362,13 +451,27 @@ async def update_user(
     role_id: str | None = None,
     department_id: str | None = None,
     password: str | None = None,
+    email: str | None = None,
+    phone: str | None = None,
+    full_name: str | None = None,
 ) -> dict | None:
+    # None=不修改；空串=清空（email/phone/full_name）
+    if password:
+        password = _validate_password(password)
     async with aiosqlite.connect(DB_PATH) as conn:
         conn.row_factory = aiosqlite.Row
         cur = await conn.execute("SELECT * FROM users WHERE id=?", (uid,))
         row = await cur.fetchone()
         if not row:
             return None
+        # 先归一化再查重：""→None（清空），None→保留原值
+        new_email = _validate_email(email) if email is not None else _cell(row, "email")
+        new_phone = _validate_phone(phone) if phone is not None else _cell(row, "phone")
+        new_full_name = _validate_full_name(full_name) if full_name is not None else _cell(row, "full_name")
+        if new_email:
+            c = await conn.execute("SELECT id FROM users WHERE email=? AND id<>?", (new_email, uid))
+            if await c.fetchone():
+                raise ValueError("邮箱已被使用")
         if role_id is not None:
             r = await get_role(role_id)
             role = r["key"] if r else row["role"]
@@ -382,8 +485,9 @@ async def update_user(
         new_dept = department_id if department_id is not None else row["department_id"]
         new_pw = _hash_password(password) if password else row["password_hash"]
         await conn.execute(
-            "UPDATE users SET role=?, role_id=?, department_id=?, password_hash=? WHERE id=?",
-            (new_role, new_role_id, new_dept, new_pw, uid),
+            "UPDATE users SET role=?, role_id=?, department_id=?, password_hash=?, "
+            "email=?, phone=?, full_name=? WHERE id=?",
+            (new_role, new_role_id, new_dept, new_pw, new_email, new_phone, new_full_name, uid),
         )
         await conn.commit()
     return await get_user(uid)
@@ -433,6 +537,8 @@ async def get_current_user(
 ) -> dict:
     if not creds or not creds.credentials:
         raise HTTPException(status_code=401, detail="未登录或缺少凭证")
+    if creds.credentials in _REVOKED:
+        raise HTTPException(status_code=401, detail="已登出，请重新登录")
     payload = decode_token(creds.credentials)
     if not payload:
         raise HTTPException(status_code=401, detail="凭证无效或已过期")

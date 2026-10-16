@@ -103,11 +103,21 @@
           </label>
         </template>
 
-        <label class="field col">
-          <span>allow_roles（逗号分隔，可选；空=不限制）</span>
-          <input v-model="form.allow_roles" placeholder="如 admin 或 admin,user" />
-          <span class="sub">命中列表外的角色调用该服务器的工具时会被拒绝。</span>
-        </label>
+        <div class="field col">
+          <span>允许角色（勾选即限流；全不勾 = 不限制）</span>
+          <div class="role-opts">
+            <label
+              v-for="r in roles" :key="r.key"
+              class="role-opt" :class="{ on: form.allow_roles.includes(r.key) }"
+              :title="r.description || ''"
+            >
+              <input type="checkbox" :value="r.key" v-model="form.allow_roles" />
+              <span>{{ r.name }}（{{ r.key }}）</span>
+            </label>
+            <span v-if="rolesError" class="err-inline">{{ rolesError }}</span>
+          </div>
+          <span class="sub">名单外的角色调用该服务器的工具时会被拒绝。</span>
+        </div>
 
         <label class="field check">
           <input type="checkbox" v-model="form.enabled" />
@@ -127,7 +137,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { apiFetch } from '../auth'
 
 const props = defineProps({ modelValue: { type: Array, default: () => [] } })
@@ -138,11 +148,26 @@ const testing = ref(-1)
 const previews = reactive({})
 const modalEl = ref(null)
 
+// 角色选项（allow_roles 用 checkbox 选择而非手输，避免打错角色名）
+const roles = ref([])
+const rolesError = ref('')
+async function loadRoles() {
+  try {
+    const r = await apiFetch('/api/admin/roles')
+    if (!r.ok) throw new Error(`角色列表加载失败（${r.status}）`)
+    roles.value = (await r.json()).roles || []
+    rolesError.value = ''
+  } catch (e) {
+    rolesError.value = e.message || String(e)
+  }
+}
+onMounted(loadRoles)
+
 const showForm = ref(false)
 const editingIndex = ref(-1)
 const form = reactive({
   name: '', transport: 'stdio', command: '', args: '', env: '',
-  url: '', headers: '', allow_roles: '', enabled: true,
+  url: '', headers: '', allow_roles: [], enabled: true,
 })
 const formError = ref('')
 const formTest = ref('')
@@ -169,7 +194,7 @@ function parseKV(text, sep) {
 }
 function buildPayload(s) {
   const p = { name: s.name.trim(), transport: s.transport, enabled: s.enabled !== false }
-  const roles = parseLines((s.allow_roles || '').replace(/,/g, '\n'))
+  const roles = (s.allow_roles || []).filter(Boolean)
   if (roles.length) p.allow_roles = roles
   if (s.transport === 'stdio') {
     p.command = s.command.trim()
@@ -193,7 +218,7 @@ function serverToForm(s) {
     env: Object.entries(s.env || {}).map(([k, v]) => `${k}=${v}`).join('\n'),
     url: s.url || '',
     headers: Object.entries(s.headers || {}).map(([k, v]) => `${k}: ${v}`).join('\n'),
-    allow_roles: (s.allow_roles || []).join(', '),
+    allow_roles: [...(s.allow_roles || [])],
     enabled: s.enabled !== false,
   }
 }
@@ -202,7 +227,7 @@ function serverToForm(s) {
 function openAdd() {
   Object.assign(form, {
     name: '', transport: 'stdio', command: '', args: '', env: '',
-    url: '', headers: '', allow_roles: '', enabled: true,
+    url: '', headers: '', allow_roles: [], enabled: true,
   })
   editingIndex.value = -1
   formError.value = ''
@@ -308,6 +333,18 @@ function removeServer(i) {
 
 .field.col textarea { min-height: 60px; }
 .field .sub { font-size: 12px; color: var(--muted); }
+.role-opts { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+.role-opt {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  padding: 6px 12px; border-radius: 20px; font-size: 13px;
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--muted);
+  transition: border-color .15s ease, color .15s ease, background-color .15s ease;
+}
+.role-opt:hover { border-color: var(--primary); color: var(--text); }
+.role-opt.on {
+  border-color: var(--primary); color: var(--primary-strong);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
 .modal-actions { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .form-test { font-size: 12px; }
 .form-test.ok { color: var(--success); }

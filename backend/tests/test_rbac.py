@@ -103,14 +103,14 @@ def test_user_role_department_association(tmp_db):
         user_role = await auth.get_role_by_key("user")
         dept = await auth.create_department("市场部")
 
-        u = await auth.create_user("alice", "pw123", role_id=user_role["id"], department_id=dept["id"])
+        u = await auth.create_user("alice", "pw1234567", role_id=user_role["id"], department_id=dept["id"])
         assert u["role"] == "user"
         assert u["role_id"] == user_role["id"]
         assert u["department_id"] == dept["id"]
 
         # 管理员角色（key=admin）会让用户成为真管理员
         admin_role = await auth.get_role_by_key("admin")
-        ad = await auth.create_user("root", "pw", role_id=admin_role["id"])
+        ad = await auth.create_user("root", "pw123456", role_id=admin_role["id"])
         assert ad["role"] == "admin"
 
         # list_users 返回关联名（LEFT JOIN）
@@ -127,19 +127,19 @@ def test_update_user_role_department_password(tmp_db):
         admin_role = await auth.get_role_by_key("admin")
         dept = await auth.create_department("财务部")
 
-        u = await auth.create_user("bob", "pw1")
+        u = await auth.create_user("bob", "pw123456")
         updated = await auth.update_user(
-            u["id"], role_id=admin_role["id"], department_id=dept["id"], password="newpw",
+            u["id"], role_id=admin_role["id"], department_id=dept["id"], password="newpw123",
         )
         assert updated["role"] == "admin"
         assert updated["role_id"] == admin_role["id"]
         assert updated["department_id"] == dept["id"]
-        assert await auth.verify_login("bob", "newpw") is not None
+        assert await auth.verify_login("bob", "newpw123") is not None
 
         # 仅改密码不应触碰部门
-        again = await auth.update_user(u["id"], password="newpw2")
+        again = await auth.update_user(u["id"], password="newpw2123")
         assert again["department_id"] == dept["id"]
-        assert await auth.verify_login("bob", "newpw2") is not None
+        assert await auth.verify_login("bob", "newpw2123") is not None
     asyncio.run(run())
 
 
@@ -148,7 +148,7 @@ def test_delete_role_cascades_user_to_user(tmp_db):
         await _init(tmp_db)
         # 自定义角色（key 非 admin/user）：创建用户时 role 被归一为 user，仅保留 role_id
         custom = await auth.create_role("临时", "temp")
-        u = await auth.create_user("carol", "pw", role_id=custom["id"])
+        u = await auth.create_user("carol", "pw123456", role_id=custom["id"])
         assert u["role"] == "user"
         assert u["role_id"] == custom["id"]
 
@@ -164,7 +164,7 @@ def test_delete_department_nulls_user(tmp_db):
     async def run():
         await _init(tmp_db)
         dept = await auth.create_department("删除部")
-        u = await auth.create_user("dave", "pw", department_id=dept["id"])
+        u = await auth.create_user("dave", "pw123456", department_id=dept["id"])
         assert u["department_id"] == dept["id"]
 
         await auth.delete_department(dept["id"])

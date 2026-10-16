@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from langgraph.types import Command
 from pydantic import BaseModel
 
@@ -36,6 +37,7 @@ from agent.auth import (
     init_roles_departments,
     list_roles, create_role, delete_role,
     list_departments, create_department, delete_department, update_user,
+    logout_token,
 )
 from kb.api import router as kb_router
 
@@ -210,6 +212,17 @@ async def login(body: LoginRequest):
     if not user:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     return {"token": encode_token(user), "user": user}
+
+
+_bearer = HTTPBearer(auto_error=False)
+
+
+@app.post("/api/auth/logout")
+async def logout(creds: HTTPAuthorizationCredentials | None = Depends(_bearer)):
+    """登出：将当前 Bearer token 加入服务端黑名单（内存态）。未携带凭证时幂等成功。"""
+    if creds and creds.credentials:
+        await logout_token(creds.credentials)
+    return {"ok": True}
 
 
 @app.get("/api/auth/me")
@@ -425,6 +438,9 @@ async def update_admin_agent(agent_id: str, body: AgentConfig, _: dict = Depends
             from agent.deep_agent import build_agent
 
             AGENT = await build_agent(cfg)
+    # 聊天页恒带 agent_id → 走 AGENT_CACHE；配置变更后必须失效，否则热重建不生效
+    # （含按 system_prompt 缓存的条目：它们内嵌默认 Agent 配置与 MCP 服务器）。
+    AGENT_CACHE.clear()
     return {"agent": cfg, "tool_groups": list_tools()}
 
 
@@ -439,6 +455,7 @@ async def set_default_agent(agent_id: str, _: dict = Depends(require_admin)):
         from agent.deep_agent import build_agent
 
         AGENT = await build_agent(cfg)
+    AGENT_CACHE.clear()
     return {"agent": cfg}
 
 
@@ -455,6 +472,7 @@ async def delete_admin_agent(agent_id: str, _: dict = Depends(require_admin)):
             from agent.deep_agent import build_agent
 
             AGENT = await build_agent(await load_default_config())
+    AGENT_CACHE.pop(f"agent:{agent_id}", None)
     return {"status": "deleted", **result}
 
 
@@ -569,6 +587,9 @@ class CreateUserRequest(BaseModel):
     role: str = "user"
     role_id: str | None = None
     department_id: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    full_name: str | None = None
 
 
 class UpdateUserRequest(BaseModel):
@@ -576,6 +597,9 @@ class UpdateUserRequest(BaseModel):
     role_id: str | None = None
     department_id: str | None = None
     password: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    full_name: str | None = None
 
 
 @app.get("/api/admin/users")
@@ -586,10 +610,11 @@ async def admin_list_users(_: dict = Depends(require_admin)):
 
 @app.post("/api/admin/users")
 async def admin_create_user(body: CreateUserRequest, _: dict = Depends(require_admin)):
-    """管理员创建用户（关联 role_id / department_id）。"""
+    """管理员创建用户（关联 role_id / department_id，字段校验见 agent.auth）。"""
     try:
         u = await create_user(
             body.username, body.password, body.role, body.role_id, body.department_id,
+            email=body.email, phone=body.phone, full_name=body.full_name,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -598,9 +623,12 @@ async def admin_create_user(body: CreateUserRequest, _: dict = Depends(require_a
 
 @app.put("/api/admin/users/{uid}")
 async def admin_update_user(uid: str, body: UpdateUserRequest, _: dict = Depends(require_admin)):
-    """更新用户角色 / 部门 / 密码。"""
+    """更新用户角色 / 部门 / 密码 / 邮箱 / 电话 / 姓名。"""
     try:
-        u = await update_user(uid, body.role, body.role_id, body.department_id, body.password)
+        u = await update_user(
+            uid, body.role, body.role_id, body.department_id, body.password,
+            email=body.email, phone=body.phone, full_name=body.full_name,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     if not u:

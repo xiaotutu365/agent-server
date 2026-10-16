@@ -136,13 +136,18 @@ tests/test_mcp_permission_demo.py::test_mcp_role_gate[赵审计]     PASSED
 
 | # | 姓名 | role | 实际返回 | 是否一致 | 执行人 / 日期 |
 |---|---|---|---|---|---|
-| 1 | 张管理员 | admin |  | □ |  |
-| 2 | 李主管 | admin |  | □ |  |
-| 3 | 王普通用户 | user |  | □ |  |
-| 4 | 匿名请求 | None |  | □ |  |
-| 5 | 赵审计 | auditor |  | □ |  |
+| 1 | 张管理员 | admin | `[echo] hi` | ☑ | agent / 2026-10-16 |
+| 2 | 李主管 | admin | `[echo] hi` | ☑ | agent / 2026-10-16 |
+| 3 | 王普通用户 | user | `⛔ 无权限：MCP 服务器「test-suite」的工具仅允许角色 ['admin'] 调用，当前角色为 user。` | ☑ | agent / 2026-10-16 |
+| 4 | 匿名请求 | None | `⛔ 无权限：...当前角色为 None。` | ☑ | agent / 2026-10-16 |
+| 5 | 赵审计 | auditor | `⛔ 无权限：...当前角色为 auditor。` | ☑ | agent / 2026-10-16 |
 
-自动化测试结论：□ 全绿  □ 有失败（附日志）
+自动化测试结论：☑ 全绿（`test_mcp_permission_demo.py` 5 条 + `test_mcp_gate.py` 1 条，6 passed，2026-10-16）
+
+端到端补充验证（真实后端 + `/api/chat/stream`，默认 Agent 的 `test-suite` 临时设 `allow_roles=["admin"]`）：
+- admin 登录发消息 → LLM 实际调用 `echo(text="hello-admin")`，返回 `[echo] hello-admin`，工具执行 ✓
+- 普通用户（临时账号 permuser01）发同一消息 → 工具返回 `⛔ 无权限...当前角色为 user`，**工具未执行** ✓
+- 验证后已恢复基线配置（`allow_roles=[]`）并删除临时用户 ✓
 
 ---
 

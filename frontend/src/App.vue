@@ -48,6 +48,9 @@
               <Icon name="logout" :size="16" /><span>退出登录</span>
             </button>
           </div>
+          <button class="logout-btn" @click="logout" aria-label="退出登录">
+            <Icon name="logout" :size="15" /><span>退出</span>
+          </button>
         </div>
         <router-link v-else-if="!isLoginPage" to="/login" class="navlink">登录</router-link>
       </div>
@@ -115,7 +118,8 @@ function initTheme() {
   applyTheme()
 }
 
-function logout() {
+async function logout() {
+  try { await apiFetch('/api/auth/logout', { method: 'POST' }) } catch (e) { /* 服务端登出失败不影响本地清态 */ }
   clearAuth()
   router.push('/login')
 }
@@ -185,7 +189,18 @@ onMounted(async () => {
 .status.up { color: var(--success); }
 .status.up .dot { background: var(--success); }
 
-.usermenu { position: relative; }
+.usermenu { position: relative; display: flex; align-items: center; gap: 8px; }
+.logout-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; border-radius: var(--radius-sm);
+  background: transparent; border: 1px solid var(--border);
+  color: var(--text-2); font-size: 13px; font-family: inherit; cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.logout-btn:hover {
+  background: color-mix(in srgb, var(--destructive) 10%, transparent);
+  border-color: var(--destructive); color: var(--destructive);
+}
 .userbtn {
   display: flex; align-items: center; gap: 8px;
   background: transparent; border: 1px solid var(--border); border-radius: 22px;

@@ -148,7 +148,17 @@ a { color: var(--primary); }
   border-radius: 4px;
 }
 
-button, .btn, .menu-item, .navlink, input, select, textarea, [role="button"] {
+button, .btn, .menu-item, .navlink, [role="button"] {
+  cursor: pointer;
+}
+
+/* 文本输入控件使用 I 形文本光标，而非手型 */
+input, textarea {
+  cursor: text;
+}
+/* 选择/切换类控件保持手型 */
+input[type="checkbox"], input[type="radio"], input[type="range"],
+input[type="color"], input[type="file"], select {
   cursor: pointer;
 }
 
@@ -235,6 +245,11 @@ select, textarea {
 input:focus, select:focus, textarea:focus {
   border-color: var(--primary); outline: 2px solid color-mix(in srgb, var(--primary) 35%, transparent); outline-offset: 0;
 }
+
+/* 数字输入：隐藏原生上下 spinner（与整体设计不符），外观与普通文本框一致；键盘上下方向键仍可步进 */
+input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 
 /* 复选框行字段（ModelConfig / AgentEdit / McpServers 共用） */
 .field.check { flex-direction: row; align-items: center; gap: 8px; font-size: 13px; color: var(--text); }
