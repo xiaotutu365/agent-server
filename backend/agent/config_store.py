@@ -23,6 +23,7 @@ DEFAULT_CONFIG = {
     "hitl": dict(INTERRUPT_TOOLS),
     "memory_enabled": True,
     "kb_enabled": True,
+    "kb_ids": [],  # 挂载的知识库列表；空 = 旧行为（检索所有库）
     "mcp_servers": [],  # 外部 MCP 服务器列表（见 agent/mcp_tools.py）
 }
 
@@ -67,6 +68,12 @@ async def _ensure_table(conn: aiosqlite.Connection):
             "ALTER TABLE agent_config ADD COLUMN mcp_servers TEXT NOT NULL DEFAULT '[]'"
         )
         await conn.commit()
+    # 迁移：缺 kb_ids 列则补上（Agent 级知识库挂载）
+    if "kb_ids" not in cols:
+        await conn.execute(
+            "ALTER TABLE agent_config ADD COLUMN kb_ids TEXT NOT NULL DEFAULT '[]'"
+        )
+        await conn.commit()
 
 
 def _row_to_config(row) -> dict:
@@ -80,6 +87,7 @@ def _row_to_config(row) -> dict:
         "hitl": json.loads(row["hitl"]),
         "memory_enabled": bool(row["memory_enabled"]),
         "kb_enabled": bool(row["kb_enabled"]),
+        "kb_ids": json.loads(row["kb_ids"] or "[]"),
         "mcp_servers": json.loads(row["mcp_servers"]),
         "is_default": bool(row["is_default"]),
         "updated_at": row["updated_at"],
@@ -162,6 +170,7 @@ async def create_agent(data: dict) -> dict:
             "hitl": hitl,
             "memory_enabled": bool(data.get("memory_enabled", True)),
             "kb_enabled": bool(data.get("kb_enabled", True)),
+            "kb_ids": [k for k in (data.get("kb_ids") or []) if k],
             "mcp_servers": data.get("mcp_servers", []),
             "is_default": is_default,
             "updated_at": _now(),
@@ -169,13 +178,14 @@ async def create_agent(data: dict) -> dict:
         await conn.execute(
             "INSERT INTO agent_config "
             "(id,name,system_prompt,model_name,temperature,tools_enabled,hitl,"
-            "memory_enabled,kb_enabled,mcp_servers,is_default,updated_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "memory_enabled,kb_enabled,kb_ids,mcp_servers,is_default,updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (
                 cfg["id"], cfg["name"], cfg["system_prompt"], cfg["model_name"],
                 cfg["temperature"], json.dumps(cfg["tools_enabled"], ensure_ascii=False),
                 json.dumps(cfg["hitl"], ensure_ascii=False),
                 int(cfg["memory_enabled"]), int(cfg["kb_enabled"]),
+                json.dumps(cfg["kb_ids"], ensure_ascii=False),
                 json.dumps(cfg["mcp_servers"], ensure_ascii=False),
                 is_default, cfg["updated_at"],
             ),
@@ -211,6 +221,7 @@ async def update_agent(agent_id: str, data: dict) -> dict | None:
             "hitl": hitl,
             "memory_enabled": bool(data.get("memory_enabled", bool(row["memory_enabled"]))),
             "kb_enabled": bool(data.get("kb_enabled", bool(row["kb_enabled"]))),
+            "kb_ids": [k for k in (data.get("kb_ids", json.loads(row["kb_ids"] or "[]"))) if k],
             "mcp_servers": data.get("mcp_servers", json.loads(row["mcp_servers"])),
             "is_default": is_default,
             "updated_at": _now(),
@@ -219,13 +230,14 @@ async def update_agent(agent_id: str, data: dict) -> dict | None:
             """UPDATE agent_config SET
                  name=?, system_prompt=?, model_name=?, temperature=?,
                  tools_enabled=?, hitl=?, memory_enabled=?, kb_enabled=?,
-                 mcp_servers=?, is_default=?, updated_at=?
+                 kb_ids=?, mcp_servers=?, is_default=?, updated_at=?
                WHERE id=?""",
             (
                 cfg["name"], cfg["system_prompt"], cfg["model_name"], cfg["temperature"],
                 json.dumps(cfg["tools_enabled"], ensure_ascii=False),
                 json.dumps(cfg["hitl"], ensure_ascii=False),
                 int(cfg["memory_enabled"]), int(cfg["kb_enabled"]),
+                json.dumps(cfg["kb_ids"], ensure_ascii=False),
                 json.dumps(cfg["mcp_servers"], ensure_ascii=False),
                 is_default, cfg["updated_at"], agent_id,
             ),

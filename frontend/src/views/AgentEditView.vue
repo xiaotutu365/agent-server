@@ -111,6 +111,21 @@
       <McpServers v-model="config.mcp_servers" />
     </section>
 
+    <section class="card">
+      <h3>知识库挂载</h3>
+      <p class="hint">勾选本 Agent 可检索的知识库（对话时相关片段自动注入并附引用来源）；<b>不勾选 = 检索所有库</b>（旧行为）。</p>
+      <div v-if="loadingKbs" class="empty" role="status">加载中…</div>
+      <div v-else-if="!kbList.length" class="empty" role="status">暂无知识库，先到「知识库管理」创建。</div>
+      <div v-else class="tools">
+        <label v-for="k in kbList" :key="k.kb_id" class="tool">
+          <input type="checkbox" :checked="config.kb_ids.includes(k.kb_id)"
+                 @change="toggleKb(k.kb_id, $event.target.checked)" />
+          <span class="tool-name">{{ k.kb_id }}</span>
+          <span class="tool-desc">{{ k.points_count }} 个片段</span>
+        </label>
+      </div>
+    </section>
+
     <section v-if="changes.length" class="card preview">
       <h3>保存前预览（{{ changes.length }} 项改动）</h3>
       <ul>
@@ -135,6 +150,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch } from '../auth'
+import { listKbs } from '../api/kb'
 import McpServers from '../components/McpServers.vue'
 
 const route = useRoute()
@@ -151,11 +167,14 @@ const config = reactive({
   hitl: {},
   memory_enabled: true,
   kb_enabled: true,
+  kb_ids: [],
   mcp_servers: [],
   is_default: false,
 })
 const original = ref(null)
 const toolGroups = ref([])
+const kbList = ref([])
+const loadingKbs = ref(false)
 const loading = ref(false)
 const saving = ref(false)
 const savedMsg = ref('')
@@ -175,6 +194,7 @@ onMounted(load)
 async function load() {
   loadError.value = ''
   loading.value = true
+  loadingKbs.value = true
   try {
     const url = isNew.value ? '/api/admin/agents/template' : `/api/admin/agents/${agentId.value}`
     const r = await apiFetch(url)
@@ -182,13 +202,21 @@ async function load() {
     const data = await r.json()
     Object.assign(config, data.agent)
     if (typeof config.hitl !== 'object' || config.hitl === null) config.hitl = {}
+    if (!Array.isArray(config.kb_ids)) config.kb_ids = []
     toolGroups.value = data.tool_groups || []
     original.value = JSON.parse(JSON.stringify(config))
+    kbList.value = await listKbs().catch(() => [])
   } catch (e) {
     loadError.value = e.message || String(e)
   } finally {
     loading.value = false
+    loadingKbs.value = false
   }
+}
+
+function toggleKb(kbId, val) {
+  if (val && !config.kb_ids.includes(kbId)) config.kb_ids.push(kbId)
+  if (!val) config.kb_ids = config.kb_ids.filter((k) => k !== kbId)
 }
 
 // ---------- 折叠 ----------
@@ -258,6 +286,13 @@ const changes = computed(() => {
   if (o.system_prompt !== c.system_prompt) list.push(`系统提示词：${c.system_prompt.trim() ? '已修改' : '已清空'}`)
   if (o.memory_enabled !== c.memory_enabled) list.push(`长期记忆：${o.memory_enabled ? '开启' : '关闭'} → ${c.memory_enabled ? '开启' : '关闭'}`)
   if (o.kb_enabled !== c.kb_enabled) list.push(`知识库：${o.kb_enabled ? '开启' : '关闭'} → ${c.kb_enabled ? '开启' : '关闭'}`)
+  const oKb = (o.kb_ids || []).slice().sort()
+  const cKb = (c.kb_ids || []).slice().sort()
+  if (JSON.stringify(oKb) !== JSON.stringify(cKb)) {
+    list.push(cKb.length
+      ? `知识库挂载：${cKb.length} 个（${cKb.join('、')}）`
+      : '知识库挂载：清空（检索所有库）')
+  }
   if (!!o.is_default !== !!c.is_default) list.push(`默认 Agent：${o.is_default ? '是' : '否'} → ${c.is_default ? '是' : '否'}`)
 
   const oTools = new Set(o.tools_enabled)
@@ -304,6 +339,7 @@ async function save() {
       hitl: config.hitl,
       memory_enabled: config.memory_enabled,
       kb_enabled: config.kb_enabled,
+      kb_ids: config.kb_ids,
       mcp_servers: config.mcp_servers,
       is_default: !!config.is_default,
     }

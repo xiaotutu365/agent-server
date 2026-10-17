@@ -23,11 +23,15 @@ ALL_DOC_TYPES = [
     ".html", ".json", ".pptx", ".xlsx",
 ]
 
+# 分片策略枚举（仅对新上传的文档生效，已有文档需删除重传）
+CHUNK_STRATEGIES = ["fixed", "markdown", "blank_line"]
+
 DEFAULTS = {
     # 文档与分块
     "supported_ext": [".txt", ".md", ".pdf", ".docx", ".csv", ".jsonl"],
     "chunk_size": 800,
     "chunk_overlap": 100,
+    "chunk_strategy": "fixed",
     "max_file_mb": 10,
     # 嵌入模型（dense：OpenAI 兼容）
     "embedding_base_url": cfg.EMBEDDING_BASE_URL,
@@ -70,6 +74,8 @@ def get_settings() -> dict:
 
 def save_settings(patch: dict) -> dict:
     """合并并持久化配置；随后重置嵌入客户端缓存以应用新配置。"""
+    if "chunk_strategy" in patch and patch["chunk_strategy"] not in CHUNK_STRATEGIES:
+        raise ValueError(f"非法分片策略: {patch['chunk_strategy']}，可选: {CHUNK_STRATEGIES}")
     s = get_settings()
     for k, v in patch.items():
         if k in DEFAULTS:

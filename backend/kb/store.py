@@ -104,3 +104,47 @@ def upsert_points(kb_id: str, points: list) -> int:
 
 def kb_exists(kb_id: str) -> bool:
     return get_client().collection_exists(collection_name=cfg.collection_name(kb_id))
+
+
+def _source_filter(source: str) -> models.Filter:
+    return models.Filter(must=[models.FieldCondition(key="source", match=models.MatchValue(value=source))])
+
+
+def list_documents(kb_id: str) -> list:
+    """按 source 聚合列出库内文档：[{file, chunks, size_chars}]。库不存在返回 None。"""
+    client = get_client()
+    name = cfg.collection_name(kb_id)
+    if not client.collection_exists(collection_name=name):
+        return None
+    agg: dict = {}
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=name,
+            with_payload=["source", "text"],
+            limit=256,
+            offset=offset,
+        )
+        for p in points:
+            source = (p.payload or {}).get("source") or "未知来源"
+            text = (p.payload or {}).get("text") or ""
+            a = agg.setdefault(source, {"file": source, "chunks": 0, "size_chars": 0})
+            a["chunks"] += 1
+            a["size_chars"] += len(text)
+        if offset is None:
+            break
+    return sorted(agg.values(), key=lambda d: d["file"])
+
+
+def delete_document(kb_id: str, source: str) -> dict:
+    """删除单个文档（按 payload source 过滤）。返回 deleted 数；库/文档不存在返回 not_found。"""
+    client = get_client()
+    name = cfg.collection_name(kb_id)
+    if not client.collection_exists(collection_name=name):
+        return {"status": "not_found", "deleted": 0}
+    flt = _source_filter(source)
+    count = client.count(collection_name=name, count_filter=flt, exact=True).count
+    if count == 0:
+        return {"status": "not_found", "deleted": 0}
+    client.delete(collection_name=name, points_selector=models.FilterSelector(filter=flt))
+    return {"status": "deleted", "deleted": count}

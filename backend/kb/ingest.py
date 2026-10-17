@@ -5,7 +5,9 @@ import hashlib
 import os
 import uuid
 
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+import re
+
+from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from qdrant_client import models
 
 import kb.config as cfg
@@ -34,16 +36,66 @@ def _load_text(path: str) -> str:
         return f.read()
 
 
+def _fallback(text: str, s: dict) -> list:
+    """超长片段兜底：按 chunk_size/overlap 再切，保证单片段不超限。"""
+    return RecursiveCharacterTextSplitter(
+        chunk_size=s["chunk_size"], chunk_overlap=s["chunk_overlap"]
+    ).split_text(text)
+
+
+def _split_markdown(text: str, s: dict) -> list:
+    """按 Markdown 标题层级切（#/##/###），保语义完整；超长节兜底再切。"""
+    splitter = MarkdownHeaderTextSplitter(
+        headers_to_split_on=[("#", "h1"), ("##", "h2"), ("###", "h3")],
+        strip_headers=False,
+    )
+    out = []
+    for doc in splitter.split_text(text):
+        content = doc.page_content.strip()
+        if not content:
+            continue
+        if len(content) > s["chunk_size"]:
+            out.extend(_fallback(content, s))
+        else:
+            out.append(content)
+    return out
+
+
+def _split_blank_line(text: str, s: dict) -> list:
+    """按空行分段，相邻段不合并（FAQ 分条）；单段超长兜底再切。"""
+    out = []
+    for seg in re.split(r"\n\s*\n", text):
+        seg = seg.strip()
+        if not seg:
+            continue
+        if len(seg) > s["chunk_size"]:
+            out.extend(_fallback(seg, s))
+        else:
+            out.append(seg)
+    return out
+
+
 def _split(text: str) -> list:
+    """按全局配置的分片策略切分（settings.chunk_strategy）。"""
     s = settings.get_settings()
+    strategy = s.get("chunk_strategy", "fixed")
+    if strategy == "markdown":
+        return _split_markdown(text, s)
+    if strategy == "blank_line":
+        return _split_blank_line(text, s)
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=s["chunk_size"], chunk_overlap=s["chunk_overlap"]
     )
     return splitter.split_text(text)
 
 
-def ingest_file(kb_id: str, path: str) -> int:
-    """读取单个文件，切分去重后入库，返回新增片段数。"""
+def ingest_file(kb_id: str, path: str, source: str | None = None) -> int:
+    """读取单个文件，切分去重后入库，返回新增片段数。
+
+    source：payload 里的来源文件名（列表/引用展示用）。上传走临时文件，
+    必须传用户上传的原始文件名；缺省回退为临时路径的 basename。
+    """
+    display_name = source or os.path.basename(path)
     text = _load_text(path)
     chunks = _split(text)
 
@@ -63,16 +115,16 @@ def ingest_file(kb_id: str, path: str) -> int:
 
     points = []
     for (ch, idx), dvec, svec in zip(unique, dense, sparse):
-        h = hashlib.sha256(ch.encode("utf-8")).hexdigest()[:16]
+        h = hashlib.sha256(ch.encode("utf-8").hex().encode("utf-8")).hexdigest()[:16]
         pid = str(uuid.uuid5(
-            uuid.NAMESPACE_URL, f"{kb_id}:{os.path.basename(path)}:{idx}:{h}"
+            uuid.NAMESPACE_URL, f"{kb_id}:{display_name}:{idx}:{h}"
         ))
         points.append(models.PointStruct(
             id=pid,
             vector={cfg.DENSE_NAME: dvec, cfg.SPARSE_NAME: svec},
             payload={
                 "text": ch,
-                "source": os.path.basename(path),
+                "source": display_name,
                 "kb_id": kb_id,
                 "chunk_idx": idx,
             },

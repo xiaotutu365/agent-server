@@ -7,8 +7,14 @@
         <ToolSteps :steps="msg.steps" />
       </template>
       <div v-if="msg.content" class="content markdown" v-html="renderMarkdown(msg.content)"></div>
+      <div v-if="msg.citations && msg.citations.length" class="citations" aria-label="引用来源">
+        <span class="citations-label">来源</span>
+        <span v-for="(c, i) in msg.citations" :key="i" class="badge citation">
+          {{ c.file }} #{{ (c.chunk_idx ?? 0) + 1 }}
+        </span>
+      </div>
       <div
-        v-else-if="msg.role === 'assistant' && msg.streaming"
+        v-if="!msg.content && msg.role === 'assistant' && msg.streaming"
         class="typing"
         role="status"
         aria-label="正在生成回复"
@@ -39,6 +45,9 @@ defineEmits(['retry'])
 
 <style scoped>
 .msg { display: flex; gap: 10px; margin-bottom: 14px; }
+.citations { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.citations-label { font-size: 12px; color: var(--muted); font-weight: 600; }
+.citation { font-size: 11px; }
 .msg.user { flex-direction: row-reverse; }
 .avatar {
   flex: none; width: 34px; height: 34px; border-radius: 50%;

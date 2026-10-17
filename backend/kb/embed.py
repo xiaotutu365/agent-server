@@ -52,7 +52,11 @@ def _ensure_dense():
             )
         from langchain_openai import OpenAIEmbeddings
 
-        _dense = OpenAIEmbeddings(model=model, api_key=api_key, base_url=base_url)
+        # dimensions 对齐集合 schema（如智谱 embedding-3 默认 2048 维，需显式指定）
+        _dense = OpenAIEmbeddings(
+            model=model, api_key=api_key, base_url=base_url,
+            dimensions=s["embedding_dim"],
+        )
     return _dense
 
 
@@ -72,16 +76,19 @@ def _to_sparse_vec(sp) -> models.SparseVector:
 
 
 def embed_documents(texts: list) -> tuple:
-    """返回 (dense_vectors, sparse_vectors)。"""
+    """返回 (dense_vectors, sparse_vectors)。
+
+    注意：fastembed SparseTextEmbedding 只有 .embed() 方法（无 embed_documents）。
+    """
     dense = _ensure_dense().embed_documents(texts)
-    sparse = [_to_sparse_vec(s) for s in _ensure_sparse().embed_documents(texts)]
+    sparse = [_to_sparse_vec(s) for s in _ensure_sparse().embed(texts)]
     return dense, sparse
 
 
 def embed_query(text: str) -> tuple:
     """返回 (dense_vector, sparse_vector)。"""
     dense = _ensure_dense().embed_query(text)
-    sp = list(_ensure_sparse().embed_query(text))[0]
+    sp = list(_ensure_sparse().embed([text]))[0]
     return dense, _to_sparse_vec(sp)
 
 

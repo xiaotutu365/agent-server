@@ -87,6 +87,13 @@
           </div>
         </div>
         <div class="field-row">
+          <label class="lbl">分片策略</label>
+          <select v-model="settingsForm.chunk_strategy">
+            <option v-for="o in strategyOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </select>
+        </div>
+        <p v-if="strategyDesc" class="cfg-hint">{{ strategyDesc }}。仅对之后上传的文档生效，已有文档需删除重传。</p>
+        <div class="field-row">
           <label class="lbl">分块大小 (字符)</label>
           <input type="number" min="50" step="50" v-model.number="settingsForm.chunk_size" />
         </div>
@@ -156,11 +163,37 @@
         <button class="btn btn-ghost btn-sm" @click="select('')">← 返回列表</button>
         <h2>{{ current }}</h2>
       </div>
-      <button class="btn btn-primary btn-sm" type="button" :disabled="uploading" @click="fileInput?.click()">
-        {{ uploading ? '上传中…' : '上传文档' }}
-        <input ref="fileInput" type="file" accept=".txt,.md,.pdf,.docx,.csv,.jsonl" @change="doUpload" hidden />
-      </button>
+      <div class="head-actions">
+        <button class="btn btn-ghost btn-sm" @click="openEval">评测</button>
+        <button class="btn btn-primary btn-sm" type="button" :disabled="uploading" @click="fileInput?.click()">
+          {{ uploading ? '上传中…' : '上传文档' }}
+          <input ref="fileInput" type="file" accept=".txt,.md,.pdf,.docx,.csv,.jsonl" @change="doUpload" hidden />
+        </button>
+      </div>
     </header>
+
+    <section class="doc-panel" aria-label="已入库文档">
+      <h3 class="doc-title">已入库文档（{{ docs.length }}）</h3>
+      <table v-if="docs.length" class="tbl">
+        <thead>
+          <tr><th>文件</th><th>片段</th><th>字符数</th><th class="op">操作</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="d in docs" :key="d.file">
+            <td class="name">{{ d.file }}</td>
+            <td class="muted">{{ d.chunks }}</td>
+            <td class="muted">{{ d.size_chars }}</td>
+            <td class="op">
+              <button class="link link-danger" :disabled="deletingDoc === d.file" @click="doDeleteDoc(d.file)">
+                {{ deletingDoc === d.file ? '删除中…' : '删除' }}
+              </button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-else-if="loadingDocs" class="empty" role="status">加载中…</p>
+      <p v-else class="empty" role="status">暂无文档，点击右上角「上传文档」。</p>
+    </section>
 
     <form class="search" @submit.prevent="doSearch">
       <input v-model="query" aria-label="检索知识库" placeholder="在此知识库中检索…" />
@@ -177,18 +210,92 @@
         <div class="meta">
           <span class="src">{{ r.metadata.source || '未知来源' }}</span>
           <span class="idx">#{{(r.metadata.chunk_idx ?? 0) + 1}}</span>
+          <span v-if="typeof r.metadata.score === 'number'" class="score">RRF {{ r.metadata.score.toFixed(3) }}</span>
         </div>
         <p class="content">{{ r.content }}</p>
       </article>
       <p v-if="searching" class="hint" role="status">检索中…</p>
       <p v-else-if="searched && !results.length" class="hint" role="status">未找到相关内容。</p>
     </div>
+
+    <!-- 评测模态窗 -->
+    <div v-if="showEval" class="modal-mask" @click.self="showEval = false">
+      <div
+        class="modal modal-lg"
+        role="dialog"
+        aria-label="检索评测"
+        @keydown.esc="showEval = false"
+      >
+        <h3>检索评测：{{ current }}</h3>
+        <div class="modal-body">
+          <div class="field-row">
+            <label class="lbl">评测集（JSON：query + expected_files，可选 reference）</label>
+            <textarea
+              ref="evalInput"
+              v-model="evalText"
+              class="eval-editor"
+              rows="10"
+              spellcheck="false"
+              placeholder='[{"query": "…", "expected_files": ["a.md"], "reference": "期望片段原文（可选）"}]'
+            ></textarea>
+            <p class="cfg-hint">
+              expected_files 驱动 Recall@k / MRR；reference 用于 Ragas context 指标（需配置默认 chat 模型作 judge）。
+              <button class="link" @click="doSaveEvalSet">保存评测集</button>
+            </p>
+          </div>
+          <div class="eval-run-row">
+            <label class="lbl">top_k</label>
+            <input v-model.number="evalTopK" type="number" min="1" step="1" />
+            <button class="btn btn-primary" :disabled="evalRunning || !evalItems.length" @click="doRunEval">
+              {{ evalRunning ? '评测中…' : '运行评测' }}
+            </button>
+          </div>
+          <div v-if="evalError" class="err">{{ evalError }}</div>
+
+          <template v-if="evalResult">
+            <div class="eval-summary">
+              <div class="metric"><span class="m-val">{{ pct(evalResult.summary.recall_at_k) }}</span><span class="m-lbl">Recall@k</span></div>
+              <div class="metric"><span class="m-val">{{ evalResult.summary.mrr.toFixed(3) }}</span><span class="m-lbl">MRR</span></div>
+              <div v-if="evalResult.summary.ragas_available" class="metric">
+                <span class="m-val">{{ pct(evalResult.summary.context_precision) }}</span><span class="m-lbl">Ragas Precision</span>
+              </div>
+              <div v-if="evalResult.summary.ragas_available" class="metric">
+                <span class="m-val">{{ pct(evalResult.summary.context_recall) }}</span><span class="m-lbl">Ragas Recall</span>
+              </div>
+            </div>
+            <p v-if="evalResult.summary.ragas_error" class="cfg-hint">Ragas 指标未计算：{{ evalResult.summary.ragas_error }}</p>
+
+            <section v-for="(it, i) in evalResult.items" :key="i" class="eval-item">
+              <header class="eval-item-head">
+                <strong>{{ it.query }}</strong>
+                <span class="badge" :class="it.recall_at_k >= 1 ? 'ok' : 'warn'">
+                  Recall {{ pct(it.recall_at_k) }} · RR {{ it.reciprocal_rank.toFixed(2) }}
+                </span>
+              </header>
+              <article v-for="(h, j) in it.hits" :key="j" class="result">
+                <div class="meta">
+                  <span class="src">{{ h.source || '未知来源' }}</span>
+                  <span class="idx">rank {{ j + 1 }} · #{{ (h.chunk_idx ?? 0) + 1 }}</span>
+                  <span v-if="typeof h.score === 'number'" class="score">RRF {{ h.score.toFixed(3) }}</span>
+                  <span class="badge" :class="h.hit ? 'ok' : 'bad'">{{ h.hit ? '命中' : '未命中' }}</span>
+                </div>
+                <p class="content">{{ h.text }}</p>
+              </article>
+              <p v-if="!it.hits.length" class="empty" role="status">无召回结果。</p>
+            </section>
+          </template>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-ghost" @click="showEval = false">关闭</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { nextTick, onMounted, ref, reactive, watch } from 'vue'
-import { listKbs, createKb, deleteKb, uploadDoc, searchKb, getKbSettings, saveKbSettings } from '../api/kb'
+import { nextTick, onMounted, ref, reactive, computed, watch } from 'vue'
+import { listKbs, createKb, deleteKb, uploadDoc, searchKb, getKbSettings, saveKbSettings, listDocuments, deleteDocument, getEvalSet, saveEvalSet, runEval } from '../api/kb'
 
 const kbs = ref([])
 const current = ref('')
@@ -202,6 +309,11 @@ const loadingKbs = ref(false)
 const error = ref('')
 const msg = ref('')
 const fileInput = ref(null)
+
+// 已入库文档
+const docs = ref([])
+const loadingDocs = ref(false)
+const deletingDoc = ref('')
 
 // 新建模态窗
 const showCreate = ref(false)
@@ -237,6 +349,34 @@ function select(id) {
   searched.value = false
   error.value = ''
   msg.value = ''
+  if (id) loadDocs(id)
+  else docs.value = []
+}
+
+async function loadDocs(id) {
+  if (!id) { docs.value = []; return }
+  loadingDocs.value = true
+  try {
+    docs.value = (await listDocuments(id)).documents || []
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    loadingDocs.value = false
+  }
+}
+
+async function doDeleteDoc(file) {
+  if (!confirm(`确认删除文档 "${file}"？该操作不可恢复。`)) return
+  deletingDoc.value = file
+  error.value = ''
+  try {
+    await deleteDocument(current.value, file)
+    await Promise.all([loadDocs(current.value), load()])
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    deletingDoc.value = ''
+  }
 }
 
 function openCreate() {
@@ -283,7 +423,7 @@ async function doUpload(e) {
   try {
     const r = await uploadDoc(current.value, file)
     msg.value = `已入库：${r.file}（${r.chunks} 个片段）`
-    await load()
+    await Promise.all([loadDocs(current.value), load()])
   } catch (err) {
     error.value = err.message
   } finally {
@@ -320,6 +460,7 @@ const settingsForm = reactive({
   supported_ext: ['.txt', '.md', '.pdf', '.docx', '.csv', '.jsonl'],
   chunk_size: 800,
   chunk_overlap: 100,
+  chunk_strategy: 'fixed',
   max_file_mb: 10,
   embedding_base_url: '',
   embedding_model: '',
@@ -331,6 +472,18 @@ const settingsForm = reactive({
   rrf_k: 60,
 })
 
+// 分片策略选项：优先用后端返回的枚举，失败时用本地兜底
+const FALLBACK_STRATEGIES = [
+  { value: 'fixed', label: '固定长度+重叠', desc: '通用切分，按字数窗口滑动（默认）' },
+  { value: 'markdown', label: '按段落/标题', desc: '按 Markdown 标题层级切，保语义完整' },
+  { value: 'blank_line', label: '按空行分段', desc: '空行分条不合并，适合 FAQ/问答对' },
+]
+const strategyOptions = ref(FALLBACK_STRATEGIES)
+const loadedStrategy = ref('fixed')
+const strategyDesc = computed(
+  () => strategyOptions.value.find((o) => o.value === settingsForm.chunk_strategy)?.desc || ''
+)
+
 async function openSettings() {
   showSettings.value = true
   error.value = ''
@@ -341,6 +494,10 @@ async function openSettings() {
     for (const k of Object.keys(settingsForm)) {
       if (s[k] !== undefined) settingsForm[k] = s[k]
     }
+    if (Array.isArray(s.chunk_strategies) && s.chunk_strategies.length) {
+      strategyOptions.value = s.chunk_strategies
+    }
+    loadedStrategy.value = s.chunk_strategy || 'fixed'
   } catch (e) {
     settingsError.value = e.message
   }
@@ -361,11 +518,87 @@ async function saveSettings() {
   for (const k of Object.keys(settingsForm)) patch[k] = settingsForm[k]
   try {
     await saveKbSettings(patch)
-    settingsMsg.value = '配置已保存 ✓'
+    settingsMsg.value = settingsForm.chunk_strategy !== loadedStrategy.value
+      ? '配置已保存 ✓（分片策略仅对之后上传的文档生效，已有文档需删除重传）'
+      : '配置已保存 ✓'
   } catch (e) {
     settingsError.value = e.message
   } finally {
     settingsSaving.value = false
+  }
+}
+
+// ---------- 检索评测模态窗（spec 能力 L6） ----------
+const showEval = ref(false)
+const evalText = ref('')
+const evalTemplate = ref(false)
+const evalTopK = ref(5)
+const evalRunning = ref(false)
+const evalResult = ref(null)
+const evalError = ref('')
+const evalInput = ref(null)
+
+// textarea 内容即评测集视图：运行前自动保存，保证「看到的」就是「运行的」
+const evalItems = computed(() => {
+  try {
+    const v = JSON.parse(evalText.value)
+    return Array.isArray(v) ? v.filter((x) => x && x.query) : []
+  } catch {
+    return []
+  }
+})
+
+function pct(v) {
+  return `${(Number(v ?? 0) * 100).toFixed(1)}%`
+}
+
+watch(showEval, (open) => {
+  if (open) {
+    evalResult.value = null
+    evalError.value = ''
+    evalText.value = ''
+    evalTemplate.value = false
+    nextTick(() => evalInput.value?.focus())
+    getEvalSet(current.value)
+      .then((d) => {
+        evalText.value = JSON.stringify(d.items, null, 2)
+        evalTemplate.value = !!d.template
+      })
+      .catch((e) => { evalError.value = e.message })
+  }
+})
+
+async function doSaveEvalSet() {
+  evalError.value = ''
+  let items
+  try {
+    items = JSON.parse(evalText.value)
+  } catch {
+    evalError.value = '评测集不是合法 JSON，请修正后再保存。'
+    return
+  }
+  try {
+    const saved = await saveEvalSet(current.value, items)
+    evalText.value = JSON.stringify(saved, null, 2)
+    evalTemplate.value = false
+  } catch (e) {
+    evalError.value = e.message
+  }
+}
+
+async function doRunEval() {
+  if (evalRunning.value) return
+  evalError.value = ''
+  evalResult.value = null
+  evalRunning.value = true
+  try {
+    const saved = await saveEvalSet(current.value, JSON.parse(evalText.value))
+    evalText.value = JSON.stringify(saved, null, 2)
+    evalResult.value = await runEval(current.value, evalTopK.value || null)
+  } catch (e) {
+    evalError.value = e instanceof SyntaxError ? '评测集不是合法 JSON，请修正后再运行。' : e.message
+  } finally {
+    evalRunning.value = false
   }
 }
 
@@ -376,6 +609,31 @@ onMounted(load)
 .head-actions { display: flex; gap: 10px; align-items: center; }
 .op { display: flex; align-items: center; gap: 10px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+
+/* 评测模态窗 */
+.modal-lg { width: min(760px, 94vw); max-height: 88vh; overflow: auto; }
+.modal-body { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
+.eval-editor {
+  width: 100%; font-family: var(--mono); font-size: 12px; line-height: 1.6;
+  padding: 10px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel); color: var(--text); resize: vertical;
+}
+.eval-run-row { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
+.eval-run-row .lbl { flex: none; font-size: 13px; color: var(--muted); }
+.eval-run-row input { width: 90px; }
+.eval-summary { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 4px; }
+.eval-summary .metric {
+  flex: 1; min-width: 120px; display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel);
+}
+.eval-summary .m-val { font-size: 20px; font-weight: 700; font-family: var(--mono); }
+.eval-summary .m-lbl { font-size: 12px; color: var(--muted); }
+.eval-item { margin-top: 16px; }
+.eval-item-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.badge.ok { color: var(--success, #16a34a); border-color: var(--success, #16a34a); }
+.badge.warn { color: var(--warning, #d97706); border-color: var(--warning, #d97706); }
+.badge.bad { color: var(--destructive); border-color: var(--destructive); }
 
 /* 工作区（满高） */
 .kb-workspace {
@@ -392,11 +650,14 @@ onMounted(load)
 .main-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
 .head-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .head-left h2 { margin: 0; font-size: 18px; }
+.doc-panel { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--panel); padding: 4px 14px 8px; }
+.doc-title { margin: 8px 0 4px; font-size: 13px; color: var(--muted); font-weight: 600; }
 .search { display: flex; gap: 8px; }
 .search input { flex: 1; }
 .results { display: flex; flex-direction: column; gap: 12px; }
 .result { border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 14px; background: var(--panel); }
 .result .meta { display: flex; gap: 10px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.result .meta .score { color: var(--primary-strong); font-family: var(--mono); }
 .result .content { margin: 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
 
 /* 配置 */

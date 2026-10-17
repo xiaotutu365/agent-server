@@ -7,7 +7,7 @@ deep_agent.build_agent 通过 resolve_tools 计算实际加载的工具子集。
 
 from agent.human_tools import HUMAN_TOOLS
 from agent.memory_tools import MEMORY_TOOLS
-from kb.tools import KB_TOOLS
+from kb.tools import KB_TOOLS, make_kb_tools
 from tools.crm_tools import CRM_TOOLS
 from tools.custom_tools import CUSTOM_TOOLS
 from tools.search_tools import SEARCH_TOOLS
@@ -104,10 +104,21 @@ def resolve_tools(config: dict) -> list:
 
     - tools_enabled：逐项开关（工具名列表）
     - memory_enabled / kb_enabled：记忆 / 知识库「总开关」，关闭时强制排除对应组
+    - kb_ids：agent 挂载的知识库列表，kb 组工具按此闭包重建（空列表=全库旧行为）
     """
     enabled = set(config.get("tools_enabled") or [])
     if not config.get("memory_enabled", True):
         enabled -= {n for n, m in REGISTRY.items() if m["group"] == "memory"}
     if not config.get("kb_enabled", True):
         enabled -= {n for n, m in REGISTRY.items() if m["group"] == "kb"}
-    return [m["func"] for n, m in REGISTRY.items() if n in enabled]
+    kb_bound = make_kb_tools(config.get("kb_ids") or [])
+    out, kb_used = [], 0
+    for n, m in REGISTRY.items():
+        if n not in enabled:
+            continue
+        if m["group"] == "kb":
+            out.append(kb_bound[kb_used] if kb_used < len(kb_bound) else m["func"])
+            kb_used += 1
+        else:
+            out.append(m["func"])
+    return out

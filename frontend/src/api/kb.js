@@ -34,6 +34,17 @@ export async function uploadDoc(kbId, file) {
   })
 }
 
+export async function listDocuments(kbId) {
+  return jsonFetch(`/api/kb/${encodeURIComponent(kbId)}/documents`)
+}
+
+export async function deleteDocument(kbId, file) {
+  const params = new URLSearchParams({ file })
+  return jsonFetch(`/api/kb/${encodeURIComponent(kbId)}/documents?${params}`, {
+    method: 'DELETE'
+  })
+}
+
 export async function searchKb(kbId, query, topK = 5) {
   return jsonFetch(`/api/kb/${encodeURIComponent(kbId)}/search`, {
     method: 'POST',
@@ -51,5 +62,26 @@ export async function saveKbSettings(patch) {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch)
+  })
+}
+
+/** 评测集：文件不存在时后端返回示例模板（template: true）。 */
+export async function getEvalSet(kbId) {
+  return jsonFetch(`/api/kb/${encodeURIComponent(kbId)}/evalset`)
+}
+
+export async function saveEvalSet(kbId, items) {
+  return jsonFetch(`/api/kb/${encodeURIComponent(kbId)}/evalset`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items })
+  })
+}
+
+export async function runEval(kbId, topK = null) {
+  return jsonFetch(`/api/kb/${encodeURIComponent(kbId)}/eval/run`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(topK ? { top_k: topK } : {})
   })
 }

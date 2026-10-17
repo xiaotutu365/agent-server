@@ -144,6 +144,7 @@ class AgentConfig(BaseModel):
     hitl: dict[str, list[str]] = {}
     memory_enabled: bool = True
     kb_enabled: bool = True
+    kb_ids: list[str] = []
     mcp_servers: list[dict] = []
     is_default: bool = False
     id: str = ""
@@ -151,6 +152,27 @@ class AgentConfig(BaseModel):
 
 def sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _extract_kb_citations(output: str) -> list:
+    """从 kb 工具的结构化输出提取引用来源 [{file, kb_id, chunk_idx, score}]。"""
+    try:
+        data = json.loads(output)
+        results = data.get("results") if isinstance(data, dict) else None
+        if not isinstance(results, list):
+            return []
+        cits = []
+        for r in results:
+            if isinstance(r, dict) and r.get("source"):
+                cits.append({
+                    "file": r.get("source"),
+                    "kb_id": r.get("kb_id", ""),
+                    "chunk_idx": r.get("chunk_idx", 0),
+                    "score": r.get("score"),
+                })
+        return cits
+    except Exception:  # noqa: BLE001
+        return []
 
 
 def _truncate(text: str, limit: int = 2000) -> str:
@@ -365,6 +387,11 @@ async def chat_stream(req: ChatRequest, user: dict = Depends(get_current_user)):
                             if isinstance(b, dict) and b.get("type") == "text"
                         )
                     payload = {"tool": name, "output": _truncate(str(output))}
+                    # kb 工具：从结构化输出提取引用来源，供前端在回答下方渲染
+                    if name == "search_knowledge_base":
+                        cits = _extract_kb_citations(str(output))
+                        if cits:
+                            payload["citations"] = cits
                     yield sse("tool_end", payload)
 
                 # 注：interrupt 发生在 middleware 的 after_model 钩子里，astream_events

@@ -206,7 +206,7 @@ async function restoreThread(id) {
     if (r.ok) {
       const { messages: ms } = await r.json()
       ms.forEach((m) => messages.push(reactive({
-        role: m.role, content: m.content, steps: [], plan: [], streaming: false, error: ''
+        role: m.role, content: m.content, steps: [], plan: [], citations: [], streaming: false, error: ''
       })))
     }
   } catch { /* 忽略 */ }
@@ -288,6 +288,17 @@ function makeHandlers(assistant) {
           break
         }
       }
+      // kb 检索的引用来源并入本条回答（按 file+chunk_idx 去重）
+      if (Array.isArray(d.citations) && d.citations.length) {
+        const seen = new Set(assistant.citations.map((c) => `${c.file}:${c.chunk_idx}`))
+        for (const c of d.citations) {
+          const k = `${c.file}:${c.chunk_idx}`
+          if (!seen.has(k)) {
+            seen.add(k)
+            assistant.citations.push(c)
+          }
+        }
+      }
       scrollToBottom()
     },
     onPlan(d) {
@@ -359,6 +370,7 @@ async function send(text) {
     content: '',
     steps: [],
     plan: [],
+    citations: [],
     streaming: true,
     error: ''
   })
@@ -386,6 +398,7 @@ async function retryFrom(msg) {
     content: '',
     steps: [],
     plan: [],
+    citations: [],
     streaming: true,
     error: ''
   })

@@ -32,3 +32,20 @@ def test_isolation_between_kbs():
     assert docs, "应检索到 kb_a 的内容"
     assert all(d.metadata.get("kb_id") == "kb_a" for d in docs)
     assert not any("yyy" in d.page_content for d in docs)
+
+
+def test_search_returns_rrf_scores():
+    _seed("score_test", "评分测试内容qqq")
+    docs = retrieval.hybrid_search("score_test", "评分", top_k=3)
+    assert docs, "应检索到内容"
+    scores = [d.metadata.get("score") for d in docs]
+    assert all(isinstance(x, (int, float)) for x in scores), "每条结果都应带 score"
+    assert scores == sorted(scores, reverse=True), "score 应降序"
+
+
+def test_runtime_param_override():
+    _seed("override_test", "参数覆盖测试www")
+    docs = retrieval.hybrid_search("override_test", "参数", top_k=1, candidate=1, rrf_k=1)
+    assert len(docs) <= 1, "candidate=1 时结果不超过 1 条"
+    if docs:
+        assert docs[0].metadata["score"] >= 0.5, "rrf_k=1 时 rank0 单路得分 1/2"

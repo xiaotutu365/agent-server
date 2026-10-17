@@ -11,21 +11,25 @@ from kb import store
 
 
 def _rrf(result_lists: list, k: int = 60) -> list:
-    """Reciprocal Rank Fusion：多个结果列表按排名融合。"""
+    """Reciprocal Rank Fusion：多个结果列表按排名融合，返回 [(hit, score)] 按分数降序。"""
     fused = {}
     for hits in result_lists:
         for rank, hit in enumerate(hits):
             entry = fused.setdefault(hit.id, {"hit": hit, "score": 0.0})
             entry["score"] += 1.0 / (k + rank + 1)
     ranked = sorted(fused.values(), key=lambda e: e["score"], reverse=True)
-    return [e["hit"] for e in ranked]
+    return [(e["hit"], e["score"]) for e in ranked]
 
 
-def hybrid_search(kb_id: str, query: str, top_k: int = None, candidate: int = None) -> list:
-    """对指定知识库做混合检索，返回 Document 列表（已按相关性排序）。"""
+def hybrid_search(kb_id: str, query: str, top_k: int = None, candidate: int = None, rrf_k: int = None) -> list:
+    """对指定知识库做混合检索，返回 Document 列表（已按相关性排序，metadata.score 为 RRF 分数）。
+
+    top_k/candidate/rrf_k 为运行时覆盖，None 时取全局配置。
+    """
     s = settings.get_settings()
     top_k = s["top_k"] if top_k is None else top_k
     candidate = s["candidate"] if candidate is None else candidate
+    rrf_k = s["rrf_k"] if rrf_k is None else rrf_k
     if not store.kb_exists(kb_id):
         return []
     client = store.get_client()
@@ -43,13 +47,14 @@ def hybrid_search(kb_id: str, query: str, top_k: int = None, candidate: int = No
         limit=candidate, with_payload=True,
     ).points
 
-    fused = _rrf([dense_hits, sparse_hits], k=s["rrf_k"])
+    fused = _rrf([dense_hits, sparse_hits], k=rrf_k)
     ranked = _maybe_rerank(query, fused)
 
     docs = []
-    for hit in ranked[:top_k]:
+    for hit, score in ranked[:top_k]:
         payload = hit.payload or {}
         text = payload.pop("text", "")
+        payload["score"] = score
         docs.append(Document(page_content=text, metadata=payload))
     return docs
 
@@ -57,6 +62,7 @@ def hybrid_search(kb_id: str, query: str, top_k: int = None, candidate: int = No
 def _maybe_rerank(query: str, hits: list) -> list:
     """若配置了默认「重排(rerank)」模型，则对候选集重排；任何失败都回退 RRF 顺序。
 
+    入参/出参均为 [(hit, rrf_score)]（score 为 RRF 融合分，rerank 只影响顺序）。
     兼容常见 rerank 接口（Cohere / Jina / Voyage 等）：POST base_url，
     body 为 {model, query, documents}，返回 {results|data:[{index, relevance_score|score}]}。
     """
@@ -69,7 +75,7 @@ def _maybe_rerank(query: str, hits: list) -> list:
         import json as _json
         import urllib.request
 
-        docs_text = [(_h.payload or {}).get("text", "") for _h in hits]
+        docs_text = [(_h.payload or {}).get("text", "") for _h, _s in hits]
         body = _json.dumps(
             {"model": rm["model"], "query": query, "documents": docs_text}
         ).encode("utf-8")
