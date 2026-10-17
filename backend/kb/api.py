@@ -129,6 +129,16 @@ async def upload_documents(kb_id: str, file: UploadFile = File(...)):
     return {"kb_id": kb_id, "file": file.filename, "chunks": chunks}
 
 
+@router.get("/{kb_id}/chunk")
+def get_chunk(kb_id: str, source: str, chunk_idx: int = 0):
+    """按 (source, chunk_idx) 取片段原文，供对话引用 badge 点击查看。"""
+    _kb_guard(kb_id)
+    chunk = store.get_chunk(kb_id, source, chunk_idx)
+    if chunk is None:
+        raise HTTPException(status_code=404, detail="知识库或片段不存在。")
+    return chunk
+
+
 @router.post("/{kb_id}/search")
 def search(kb_id: str, req: SearchReq):
     try:

@@ -136,6 +136,30 @@ def list_documents(kb_id: str) -> list:
     return sorted(agg.values(), key=lambda d: d["file"])
 
 
+def get_chunk(kb_id: str, source: str, chunk_idx: int) -> dict | None:
+    """按 (source, chunk_idx) 精确取一个片段的 payload；库/片段不存在返回 None。"""
+    client = get_client()
+    name = cfg.collection_name(kb_id)
+    if not client.collection_exists(collection_name=name):
+        return None
+    flt = models.Filter(must=[
+        models.FieldCondition(key="source", match=models.MatchValue(value=source)),
+        models.FieldCondition(key="chunk_idx", match=models.MatchValue(value=chunk_idx)),
+    ])
+    points, _ = client.scroll(
+        collection_name=name, scroll_filter=flt, with_payload=True, limit=1,
+    )
+    if not points:
+        return None
+    payload = points[0].payload or {}
+    return {
+        "kb_id": kb_id,
+        "source": payload.get("source") or source,
+        "chunk_idx": payload.get("chunk_idx", chunk_idx),
+        "text": payload.get("text") or "",
+    }
+
+
 def delete_document(kb_id: str, source: str) -> dict:
     """删除单个文档（按 payload source 过滤）。返回 deleted 数；库/文档不存在返回 not_found。"""
     client = get_client()

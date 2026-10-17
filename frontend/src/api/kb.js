@@ -85,3 +85,9 @@ export async function runEval(kbId, topK = null) {
     body: JSON.stringify(topK ? { top_k: topK } : {})
   })
 }
+
+/** 按 (source, chunk_idx) 取片段原文（对话引用 badge 点击查看）。 */
+export async function getChunk(kbId, source, chunkIdx) {
+  const params = new URLSearchParams({ source, chunk_idx: String(chunkIdx ?? 0) })
+  return jsonFetch(`/api/kb/${encodeURIComponent(kbId)}/chunk?${params}`)
+}

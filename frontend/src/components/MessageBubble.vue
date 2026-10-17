@@ -9,9 +9,14 @@
       <div v-if="msg.content" class="content markdown" v-html="renderMarkdown(msg.content)"></div>
       <div v-if="msg.citations && msg.citations.length" class="citations" aria-label="引用来源">
         <span class="citations-label">来源</span>
-        <span v-for="(c, i) in msg.citations" :key="i" class="badge citation">
+        <button
+          v-for="(c, i) in msg.citations" :key="i"
+          class="badge citation citation-btn"
+          :title="`查看 ${c.file} #${(c.chunk_idx ?? 0) + 1} 原文`"
+          @click="openChunk(c)"
+        >
           {{ c.file }} #{{ (c.chunk_idx ?? 0) + 1 }}
-        </span>
+        </button>
       </div>
       <div
         v-if="!msg.content && msg.role === 'assistant' && msg.streaming"
@@ -31,16 +36,63 @@
         >重试</button>
       </div>
     </div>
+
+    <div v-if="chunkModal.open" class="chunk-mask" @click.self="closeChunk">
+      <div class="chunk-modal" role="dialog" aria-modal="true" aria-label="引用片段原文">
+        <div class="chunk-head">
+          <span class="chunk-title">引用原文</span>
+          <button class="chunk-close" aria-label="关闭" @click="closeChunk">×</button>
+        </div>
+        <div class="chunk-meta">
+          <span>{{ chunkModal.source }}</span>
+          <span>片段 #{{ chunkModal.chunkIdx + 1 }}</span>
+          <span v-if="chunkModal.score != null">RRF {{ Number(chunkModal.score).toFixed(4) }}</span>
+        </div>
+        <div class="chunk-body">
+          <p v-if="chunkModal.loading" class="chunk-state">加载中…</p>
+          <p v-else-if="chunkModal.error" class="chunk-state chunk-err">{{ chunkModal.error }}</p>
+          <pre v-else class="chunk-text">{{ chunkModal.text }}</pre>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
+import { reactive, onBeforeUnmount } from 'vue'
 import { renderMarkdown } from '../markdown'
 import PlanPanel from './PlanPanel.vue'
 import ToolSteps from './ToolSteps.vue'
+import { getChunk } from '../api/kb'
 
 defineProps({ msg: { type: Object, required: true } })
 defineEmits(['retry'])
+
+const chunkModal = reactive({ open: false, loading: false, error: '', text: '', source: '', chunkIdx: 0, score: null })
+
+async function openChunk(c) {
+  chunkModal.open = true
+  chunkModal.loading = true
+  chunkModal.error = ''
+  chunkModal.text = ''
+  chunkModal.source = c.file
+  chunkModal.chunkIdx = c.chunk_idx ?? 0
+  chunkModal.score = c.score
+  try {
+    const data = await getChunk(c.kb_id, c.file, c.chunk_idx ?? 0)
+    chunkModal.text = data.text || '（片段为空）'
+  } catch (e) {
+    chunkModal.error = e.message || '加载失败'
+  } finally {
+    chunkModal.loading = false
+  }
+}
+
+function closeChunk() { chunkModal.open = false }
+
+function onKeydown(e) { if (e.key === 'Escape') closeChunk() }
+window.addEventListener('keydown', onKeydown)
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <style scoped>
@@ -48,6 +100,50 @@ defineEmits(['retry'])
 .citations { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .citations-label { font-size: 12px; color: var(--muted); font-weight: 600; }
 .citation { font-size: 11px; }
+.citation-btn {
+  cursor: pointer;
+  transition: border-color .15s ease, color .15s ease;
+}
+.citation-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 引用原文模态 */
+.chunk-mask {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0, 0, 0, .45);
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+}
+.chunk-modal {
+  background: var(--panel, #fff); color: var(--text);
+  border: 1px solid var(--border); border-radius: 12px;
+  width: 100%; max-width: 640px; max-height: 75vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .18);
+}
+.chunk-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+.chunk-title { font-weight: 600; font-size: 14px; }
+.chunk-close {
+  border: none; background: transparent; color: var(--muted);
+  font-size: 20px; line-height: 1; cursor: pointer; padding: 2px 6px;
+  border-radius: 6px;
+}
+.chunk-close:hover { background: color-mix(in srgb, var(--muted) 15%, transparent); }
+.chunk-meta {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  padding: 10px 16px; font-size: 12px; color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+.chunk-body { padding: 14px 16px; overflow: auto; }
+.chunk-state { color: var(--muted); font-size: 13px; }
+.chunk-err { color: var(--destructive); }
+.chunk-text {
+  margin: 0; white-space: pre-wrap; word-break: break-word;
+  font-size: 13px; line-height: 1.7;
+  font-family: inherit;
+}
 .msg.user { flex-direction: row-reverse; }
 .avatar {
   flex: none; width: 34px; height: 34px; border-radius: 50%;
