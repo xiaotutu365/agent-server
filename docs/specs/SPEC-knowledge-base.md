@@ -1,7 +1,7 @@
 # SPEC: knowledge-base（知识库）
 
 > 意图来源：[docs/intent/knowledge-base.md](../intent/knowledge-base.md)（interview-me，2026-10-16 已确认）
-> 追加意图：[docs/intent/kb-chunking-strategy.md](../intent/kb-chunking-strategy.md)（分片策略，2026-10-17 已确认）、[docs/intent/kb-eval.md](../intent/kb-eval.md)（检索评测，2026-10-17 已确认）
+> 追加意图：[docs/intent/kb-chunking-strategy.md](../intent/kb-chunking-strategy.md)（分片策略，2026-10-17 已确认）、[docs/intent/kb-eval.md](../intent/kb-eval.md)（检索评测，2026-10-17 已确认）、[docs/intent/kb-reingest-and-fallback.md](../intent/kb-reingest-and-fallback.md)（重新入库与兜底，2026-10-17 已确认）、[docs/intent/kb-retrieval-tuning.md](../intent/kb-retrieval-tuning.md)（检索调优，2026-10-17 已确认）
 > 选型记录：[docs/adr/ADR-001-langchain-text-splitters.md](../adr/ADR-001-langchain-text-splitters.md)、[docs/adr/ADR-002-ragas-eval.md](../adr/ADR-002-ragas-eval.md)
 
 ## 背景
@@ -182,6 +182,41 @@ intent: `docs/intent/kb-reingest-and-fallback.md`
 - 留档存在性、重建片段数一致、重复重建不累积、无留档 404、库不存在 404
 - EmbeddingUnavailable 与 ConnectionError 两类故障均降级且带标记；正常路径无标记；search API 零结果也透出 fallback；工具输出带 fallback
 
+## 能力 L8：检索调优——向量权重与相似度阈值（2026-10-17）
+
+> 意图：[docs/intent/kb-retrieval-tuning.md](../intent/kb-retrieval-tuning.md)。参考 RAGFlow Search Settings，仅补检索策略缺失的 2 项；AI summary / related search / mindmap 为搜索应用展示层功能，与聊天内嵌检索不匹配，不做。
+
+### 数据模型（settings 增字段）
+
+- `kb/settings.py`：`DEFAULTS` 新增 `"vector_weight": 0.5`（加权 RRF 中 dense 路权重，sparse 路为 1-w；0.5 等价现行为）与 `"similarity_threshold": 0.0`（0 = 不过滤，现行为）
+- `save_settings` 校验：`vector_weight` 必须为 0~1 数值、`similarity_threshold` 必须 ≥ 0，非法拒绝（HTTP 400）
+
+### 检索行为（kb/retrieval.py）
+
+- **加权 RRF**：`_rrf` 支持 per-list 权重——dense 列表贡献 `w/(k+rank+1)`，sparse 列表贡献 `(1-w)/(k+rank+1)`；不采用分数加权融合（dense cosine 与 BM25 分量纲不同，归一化不可靠）
+- **阈值过滤**（rerank 之后、截断 top_k 之前）：
+  - 配置了 rerank 模型 → `_maybe_rerank` 返回各候选 relevance_score，按 rerank 分过滤
+  - 无 rerank → 按 dense cosine 分过滤（Qdrant 返回的 cosine 分需保留映射，不再丢弃）
+  - 纯 sparse 召回（无 cosine 分）的片段**保留**——无法判定语义相关性，不误杀
+  - dense 降级（embedding 不可用，纯 BM25）→ 整体跳过过滤，保兜底可用性
+- 运行时参数覆盖：`hybrid_search` 增可选 `vector_weight / similarity_threshold`，与既有 `top_k/candidate/rrf_k` 同语义（只影响本次检索）
+
+### 前端（KnowledgeBase.vue 设置面板）
+
+- 检索设置区新增两项：向量权重（滑条 0~1，步长 0.05）与相似度阈值（数字输入 ≥0），带提示文案（权重调高偏语义、调低偏关键词精确；阈值调高更严、检索不到预期内容时调低）
+- 保存即生效（`PUT /api/kb/settings` 白名单随 DEFAULTS 自动放行），工作区检索按当前配置执行
+
+### 测试
+
+- 加权 RRF：w=1 纯 dense 序、w=0 纯 sparse 序、w=0.5 与现行为一致（回归）
+- 阈值：cosine 低于阈值被滤除、纯 sparse 召回片段保留、threshold=0 不过滤（回归）、dense 降级跳过过滤
+- settings：非法 vector_weight / 负 threshold → 400
+- 运行时覆盖生效
+
+### 验收（L8）
+
+- 默认值下全量检索相关测试回归一致；调高阈值后低相关片段被滤除且工作区可见效果；全局设置保存后对所有库生效
+
 ## 验收（整体）
 
 1. `pytest backend/tests/` 全绿。
@@ -196,6 +231,6 @@ OCR/扫描件、网页爬取、文档级权限、多租户共享库（引用全�
 
 ## 追溯
 
-- intent: `docs/intent/knowledge-base.md`、`docs/intent/kb-chunking-strategy.md`、`docs/intent/kb-eval.md`、`docs/intent/kb-reingest-and-fallback.md`
-- tasks: `tasks/knowledge-base/`、`tasks/kb-chunking-strategy/`、`tasks/kb-eval/`、`tasks/kb-reingest-and-fallback/`
+- intent: `docs/intent/knowledge-base.md`、`docs/intent/kb-chunking-strategy.md`、`docs/intent/kb-eval.md`、`docs/intent/kb-reingest-and-fallback.md`、`docs/intent/kb-retrieval-tuning.md`
+- tasks: `tasks/knowledge-base/`、`tasks/kb-chunking-strategy/`、`tasks/kb-eval/`、`tasks/kb-reingest-and-fallback/`、`tasks/kb-retrieval-tuning/`
 - ADR: `docs/adr/ADR-001-langchain-text-splitters.md`、`docs/adr/ADR-002-ragas-eval.md`
