@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import os
+import shutil
 import uuid
 
 import re
@@ -18,6 +19,42 @@ from kb import store
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 100
 SUPPORTED_EXT = (".txt", ".md", ".pdf", ".docx", ".csv", ".jsonl")
+
+# 原始文件留档根目录（测试 monkeypatch 隔离）；目录结构 {UPLOADS_ROOT}/{kb_id}/{source}
+UPLOADS_ROOT = "data/uploads"
+
+
+def archive_path(kb_id: str, source: str) -> str:
+    """留档落点：仅取 basename 防路径穿越；空名返回空串。同库同名覆盖（最新版为准）。"""
+    safe = os.path.basename(source.replace("\\", "/")).strip()
+    if not safe:
+        return ""
+    return os.path.join(UPLOADS_ROOT, kb_id, safe)
+
+
+def archive_file(kb_id: str, source: str, tmp_path: str) -> str:
+    """把上传的临时文件复制为留档，返回留档路径；失败不阻断入库（返回空串）。"""
+    dest = archive_path(kb_id, source)
+    if not dest:
+        return ""
+    try:
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        shutil.copyfile(tmp_path, dest)
+        return dest
+    except OSError:
+        return ""
+
+
+def reingest_document(kb_id: str, source: str) -> int:
+    """按当前分片策略重建单个文档：删除旧片段 → 从留档重新切分入库。
+
+    留档不存在抛 FileNotFoundError（上层转 404，提示需删除重传一次建立留档）。
+    """
+    dest = archive_path(kb_id, source or "")
+    if not dest or not os.path.isfile(dest):
+        raise FileNotFoundError(source)
+    store.delete_document(kb_id, source)
+    return ingest_file(kb_id, dest, source=source)
 
 
 def _load_text(path: str) -> str:

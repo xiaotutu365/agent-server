@@ -119,6 +119,7 @@ async def upload_documents(kb_id: str, file: UploadFile = File(...)):
             f.write(data)
         store.create_kb(kb_id)
         chunks = ingest.ingest_file(kb_id, tmppath, source=file.filename)
+        ingest.archive_file(kb_id, file.filename or "", tmppath)  # 原文件留档，供重新入库
     except embed.EmbeddingUnavailable as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as exc:  # noqa: BLE001
@@ -127,6 +128,24 @@ async def upload_documents(kb_id: str, file: UploadFile = File(...)):
         if os.path.exists(tmppath):
             os.remove(tmppath)
     return {"kb_id": kb_id, "file": file.filename, "chunks": chunks}
+
+
+@router.post("/{kb_id}/documents/reingest")
+def reingest_document(kb_id: str, file: str):
+    """按当前分片策略重建单个文档：删旧片段 → 从留档原文件重新切分入库。"""
+    _kb_guard(kb_id)
+    try:
+        chunks = ingest.reingest_document(kb_id, file)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=404,
+            detail="该文档没有留档原文件（仅支持留档后上传的文档），请删除后重新上传一次以建立留档。",
+        )
+    except embed.EmbeddingUnavailable as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"重新入库失败: {exc}")
+    return {"kb_id": kb_id, "file": file, "chunks": chunks}
 
 
 @router.get("/{kb_id}/chunk")
@@ -146,13 +165,14 @@ def search(kb_id: str, req: SearchReq):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     try:
-        docs = retrieval.hybrid_search(kb_id, req.query, top_k=req.top_k, candidate=req.candidate, rrf_k=req.rrf_k)
+        docs, fallback = retrieval.hybrid_search_ex(kb_id, req.query, top_k=req.top_k, candidate=req.candidate, rrf_k=req.rrf_k)
     except embed.EmbeddingUnavailable as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"检索失败: {exc}")
     return {
         "kb_id": kb_id,
+        "fallback": fallback or None,  # 降级原因（即使零结果也提示）
         "results": [
             {"content": d.page_content, "metadata": d.metadata} for d in docs
         ],

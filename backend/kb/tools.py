@@ -18,18 +18,18 @@ from kb import retrieval
 
 
 def _search(kb_id: str, query: str, top_k: int):
-    """单库检索；返回 (docs, error)。"""
+    """单库检索；返回 (docs, fallback, error)。fallback 为降级原因（空串=正常）。"""
     try:
         cfg.validate_kb_id(kb_id)
     except ValueError as e:
-        return None, str(e)
+        return None, "", str(e)
     try:
-        docs = retrieval.hybrid_search(kb_id, query, top_k=top_k)
+        docs, fallback = retrieval.hybrid_search_ex(kb_id, query, top_k=top_k)
     except embed.EmbeddingUnavailable as e:
-        return None, str(e)
+        return None, "", str(e)
     except Exception as exc:  # noqa: BLE001
-        return None, f"知识库检索失败: {exc}"
-    return docs, None
+        return None, "", f"知识库检索失败: {exc}"
+    return docs, fallback, None
 
 
 def make_kb_tools(kb_ids: list):
@@ -56,31 +56,37 @@ def make_kb_tools(kb_ids: list):
         if not targets:
             return _json.dumps({"error": "未挂载任何知识库。"}, ensure_ascii=False)
 
-        all_docs, last_err = [], None
+        all_docs, last_err, fallbacks = [], None, []
         for t in targets:
-            docs, err = _search(t, query, top_k)
+            docs, fb, err = _search(t, query, top_k)
             if err:
                 last_err = err
                 continue
+            if fb:
+                fallbacks.append(fb)
             all_docs.extend(docs)
         if not all_docs:
+            # 零结果（可能因降级）也要让 LLM 知道原因
+            if fallbacks:
+                return _json.dumps({"results": [], "fallback": fallbacks[0]}, ensure_ascii=False)
             return last_err or _json.dumps({"results": []}, ensure_ascii=False)
         all_docs.sort(key=lambda d: d.metadata.get("score") or 0, reverse=True)
-        return _json.dumps(
-            {
-                "results": [
-                    {
-                        "content": d.page_content,
-                        "kb_id": d.metadata.get("kb_id", ""),
-                        "source": d.metadata.get("source", "?"),
-                        "chunk_idx": d.metadata.get("chunk_idx", 0),
-                        "score": d.metadata.get("score"),
-                    }
-                    for d in all_docs[:top_k]
-                ]
-            },
-            ensure_ascii=False,
-        )
+        out = {
+            "results": [
+                {
+                    "content": d.page_content,
+                    "kb_id": d.metadata.get("kb_id", ""),
+                    "source": d.metadata.get("source", "?"),
+                    "chunk_idx": d.metadata.get("chunk_idx", 0),
+                    "score": d.metadata.get("score"),
+                }
+                for d in all_docs[:top_k]
+            ]
+        }
+        # 降级标记透传给 LLM（如 embedding 不可用回退 BM25），便于其如实告知用户
+        if fallbacks:
+            out["fallback"] = fallbacks[0]
+        return _json.dumps(out, ensure_ascii=False)
 
     return [search_knowledge_base]
 

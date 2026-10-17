@@ -21,26 +21,32 @@ def _rrf(result_lists: list, k: int = 60) -> list:
     return [(e["hit"], e["score"]) for e in ranked]
 
 
-def hybrid_search(kb_id: str, query: str, top_k: int = None, candidate: int = None, rrf_k: int = None) -> list:
-    """对指定知识库做混合检索，返回 Document 列表（已按相关性排序，metadata.score 为 RRF 分数）。
-
-    top_k/candidate/rrf_k 为运行时覆盖，None 时取全局配置。
-    """
+def hybrid_search_ex(kb_id: str, query: str, top_k: int = None, candidate: int = None, rrf_k: int = None) -> tuple:
+    """同 hybrid_search，另返回降级原因（空串=正常路径），供 API/工具层即使零结果也提示。"""
     s = settings.get_settings()
     top_k = s["top_k"] if top_k is None else top_k
     candidate = s["candidate"] if candidate is None else candidate
     rrf_k = s["rrf_k"] if rrf_k is None else rrf_k
     if not store.kb_exists(kb_id):
-        return []
+        return [], ""
     client = store.get_client()
     name = cfg.collection_name(kb_id)
-    dense, sparse = embed.embed_query(query)
 
-    dense_hits = client.query_points(
-        collection_name=name,
-        query=dense, using=cfg.DENSE_NAME,
-        limit=candidate, with_payload=True,
-    ).points
+    # dense 向量不可用（未配置 / 网络失败等任何 dense 侧故障）时降级为纯 BM25 并标记
+    fallback = ""
+    try:
+        dense, sparse = embed.embed_query(query)
+    except Exception as e:  # noqa: BLE001  # EmbeddingUnavailable / openai 连接错误等一律降级
+        fallback = f"embedding 不可用，已降级为关键词检索（{e}）"
+        dense, sparse = None, embed.sparse_query(query)
+
+    dense_hits = []
+    if dense is not None:
+        dense_hits = client.query_points(
+            collection_name=name,
+            query=dense, using=cfg.DENSE_NAME,
+            limit=candidate, with_payload=True,
+        ).points
     sparse_hits = client.query_points(
         collection_name=name,
         query=sparse, using=cfg.SPARSE_NAME,
@@ -55,8 +61,15 @@ def hybrid_search(kb_id: str, query: str, top_k: int = None, candidate: int = No
         payload = hit.payload or {}
         text = payload.pop("text", "")
         payload["score"] = score
+        if fallback:
+            payload["fallback"] = fallback
         docs.append(Document(page_content=text, metadata=payload))
-    return docs
+    return docs, fallback
+
+
+def hybrid_search(kb_id: str, query: str, top_k: int = None, candidate: int = None, rrf_k: int = None) -> list:
+    """混合检索，返回 Document 列表（保持既有签名；需要降级原因用 hybrid_search_ex）。"""
+    return hybrid_search_ex(kb_id, query, top_k=top_k, candidate=candidate, rrf_k=rrf_k)[0]
 
 
 def _maybe_rerank(query: str, hits: list) -> list:

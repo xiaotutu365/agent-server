@@ -164,7 +164,7 @@
         <h2>{{ current }}</h2>
       </div>
       <div class="head-actions">
-        <button class="btn btn-ghost btn-sm" @click="openEval">评测</button>
+        <router-link class="btn btn-ghost btn-sm" :to="`/admin/eval?kb=${current}`">评测</router-link>
         <button class="btn btn-primary btn-sm" type="button" :disabled="uploading" @click="fileInput?.click()">
           {{ uploading ? '上传中…' : '上传文档' }}
           <input ref="fileInput" type="file" accept=".txt,.md,.pdf,.docx,.csv,.jsonl" @change="doUpload" hidden />
@@ -184,6 +184,9 @@
             <td class="muted">{{ d.chunks }}</td>
             <td class="muted">{{ d.size_chars }}</td>
             <td class="op">
+              <button class="link" :disabled="reingesting === d.file" @click="doReingest(d.file)" title="删除旧片段，按当前分片策略从留档原文件重建">
+                {{ reingesting === d.file ? '重建中…' : '重新入库' }}
+              </button>
               <button class="link link-danger" :disabled="deletingDoc === d.file" @click="doDeleteDoc(d.file)">
                 {{ deletingDoc === d.file ? '删除中…' : '删除' }}
               </button>
@@ -206,6 +209,7 @@
     <div v-if="msg" class="ok">{{ msg }}</div>
 
     <div class="results">
+      <div v-if="searchFallback" class="err" role="alert">{{ searchFallback }}</div>
       <article v-for="(r, i) in results" :key="i" class="result">
         <div class="meta">
           <span class="src">{{ r.metadata.source || '未知来源' }}</span>
@@ -218,84 +222,12 @@
       <p v-else-if="searched && !results.length" class="hint" role="status">未找到相关内容。</p>
     </div>
 
-    <!-- 评测模态窗 -->
-    <div v-if="showEval" class="modal-mask" @click.self="showEval = false">
-      <div
-        class="modal modal-lg"
-        role="dialog"
-        aria-label="检索评测"
-        @keydown.esc="showEval = false"
-      >
-        <h3>检索评测：{{ current }}</h3>
-        <div class="modal-body">
-          <div class="field-row">
-            <label class="lbl">评测集（JSON：query + expected_files，可选 reference）</label>
-            <textarea
-              ref="evalInput"
-              v-model="evalText"
-              class="eval-editor"
-              rows="10"
-              spellcheck="false"
-              placeholder='[{"query": "…", "expected_files": ["a.md"], "reference": "期望片段原文（可选）"}]'
-            ></textarea>
-            <p class="cfg-hint">
-              expected_files 驱动 Recall@k / MRR；reference 用于 Ragas context 指标（需配置默认 chat 模型作 judge）。
-              <button class="link" @click="doSaveEvalSet">保存评测集</button>
-            </p>
-          </div>
-          <div class="eval-run-row">
-            <label class="lbl">top_k</label>
-            <input v-model.number="evalTopK" type="number" min="1" step="1" />
-            <button class="btn btn-primary" :disabled="evalRunning || !evalItems.length" @click="doRunEval">
-              {{ evalRunning ? '评测中…' : '运行评测' }}
-            </button>
-          </div>
-          <div v-if="evalError" class="err">{{ evalError }}</div>
-
-          <template v-if="evalResult">
-            <div class="eval-summary">
-              <div class="metric"><span class="m-val">{{ pct(evalResult.summary.recall_at_k) }}</span><span class="m-lbl">Recall@k</span></div>
-              <div class="metric"><span class="m-val">{{ evalResult.summary.mrr.toFixed(3) }}</span><span class="m-lbl">MRR</span></div>
-              <div v-if="evalResult.summary.ragas_available" class="metric">
-                <span class="m-val">{{ pct(evalResult.summary.context_precision) }}</span><span class="m-lbl">Ragas Precision</span>
-              </div>
-              <div v-if="evalResult.summary.ragas_available" class="metric">
-                <span class="m-val">{{ pct(evalResult.summary.context_recall) }}</span><span class="m-lbl">Ragas Recall</span>
-              </div>
-            </div>
-            <p v-if="evalResult.summary.ragas_error" class="cfg-hint">Ragas 指标未计算：{{ evalResult.summary.ragas_error }}</p>
-
-            <section v-for="(it, i) in evalResult.items" :key="i" class="eval-item">
-              <header class="eval-item-head">
-                <strong>{{ it.query }}</strong>
-                <span class="badge" :class="it.recall_at_k >= 1 ? 'ok' : 'warn'">
-                  Recall {{ pct(it.recall_at_k) }} · RR {{ it.reciprocal_rank.toFixed(2) }}
-                </span>
-              </header>
-              <article v-for="(h, j) in it.hits" :key="j" class="result">
-                <div class="meta">
-                  <span class="src">{{ h.source || '未知来源' }}</span>
-                  <span class="idx">rank {{ j + 1 }} · #{{ (h.chunk_idx ?? 0) + 1 }}</span>
-                  <span v-if="typeof h.score === 'number'" class="score">RRF {{ h.score.toFixed(3) }}</span>
-                  <span class="badge" :class="h.hit ? 'ok' : 'bad'">{{ h.hit ? '命中' : '未命中' }}</span>
-                </div>
-                <p class="content">{{ h.text }}</p>
-              </article>
-              <p v-if="!it.hits.length" class="empty" role="status">无召回结果。</p>
-            </section>
-          </template>
-        </div>
-        <div class="modal-actions">
-          <button class="btn btn-ghost" @click="showEval = false">关闭</button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup>
 import { nextTick, onMounted, ref, reactive, computed, watch } from 'vue'
-import { listKbs, createKb, deleteKb, uploadDoc, searchKb, getKbSettings, saveKbSettings, listDocuments, deleteDocument, getEvalSet, saveEvalSet, runEval } from '../api/kb'
+import { listKbs, createKb, deleteKb, uploadDoc, searchKb, getKbSettings, saveKbSettings, listDocuments, deleteDocument, reingestDocument } from '../api/kb'
 
 const kbs = ref([])
 const current = ref('')
@@ -314,6 +246,7 @@ const fileInput = ref(null)
 const docs = ref([])
 const loadingDocs = ref(false)
 const deletingDoc = ref('')
+const searchFallback = ref('')  // 检索降级提示（embedding 不可用回退 BM25）
 
 // 新建模态窗
 const showCreate = ref(false)
@@ -440,13 +373,35 @@ async function doSearch() {
   try {
     const r = await searchKb(current.value, q, 5)
     results.value = r.results || []
+    searchFallback.value = r.fallback
+      || results.value.find((x) => x.metadata?.fallback)?.metadata.fallback
+      || ''
     searched.value = true
   } catch (err) {
     error.value = err.message
     results.value = []
+    searchFallback.value = ''
     searched.value = true
   } finally {
     searching.value = false
+  }
+}
+
+// 重新入库：删旧片段，按当前分片策略从留档原文件重建
+const reingesting = ref('')
+
+async function doReingest(file) {
+  if (!confirm(`确认重新入库 "${file}"？将删除现有片段并按当前分片策略重建。`)) return
+  reingesting.value = file
+  error.value = ''
+  try {
+    const r = await reingestDocument(current.value, file)
+    msg.value = `已重新入库 ${file}：${r.chunks} 个片段。`
+    await loadDocs(current.value)
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    reingesting.value = ''
   }
 }
 
@@ -528,79 +483,7 @@ async function saveSettings() {
   }
 }
 
-// ---------- 检索评测模态窗（spec 能力 L6） ----------
-const showEval = ref(false)
-const evalText = ref('')
-const evalTemplate = ref(false)
-const evalTopK = ref(5)
-const evalRunning = ref(false)
-const evalResult = ref(null)
-const evalError = ref('')
-const evalInput = ref(null)
-
-// textarea 内容即评测集视图：运行前自动保存，保证「看到的」就是「运行的」
-const evalItems = computed(() => {
-  try {
-    const v = JSON.parse(evalText.value)
-    return Array.isArray(v) ? v.filter((x) => x && x.query) : []
-  } catch {
-    return []
-  }
-})
-
-function pct(v) {
-  return `${(Number(v ?? 0) * 100).toFixed(1)}%`
-}
-
-watch(showEval, (open) => {
-  if (open) {
-    evalResult.value = null
-    evalError.value = ''
-    evalText.value = ''
-    evalTemplate.value = false
-    nextTick(() => evalInput.value?.focus())
-    getEvalSet(current.value)
-      .then((d) => {
-        evalText.value = JSON.stringify(d.items, null, 2)
-        evalTemplate.value = !!d.template
-      })
-      .catch((e) => { evalError.value = e.message })
-  }
-})
-
-async function doSaveEvalSet() {
-  evalError.value = ''
-  let items
-  try {
-    items = JSON.parse(evalText.value)
-  } catch {
-    evalError.value = '评测集不是合法 JSON，请修正后再保存。'
-    return
-  }
-  try {
-    const saved = await saveEvalSet(current.value, items)
-    evalText.value = JSON.stringify(saved, null, 2)
-    evalTemplate.value = false
-  } catch (e) {
-    evalError.value = e.message
-  }
-}
-
-async function doRunEval() {
-  if (evalRunning.value) return
-  evalError.value = ''
-  evalResult.value = null
-  evalRunning.value = true
-  try {
-    const saved = await saveEvalSet(current.value, JSON.parse(evalText.value))
-    evalText.value = JSON.stringify(saved, null, 2)
-    evalResult.value = await runEval(current.value, evalTopK.value || null)
-  } catch (e) {
-    evalError.value = e instanceof SyntaxError ? '评测集不是合法 JSON，请修正后再运行。' : e.message
-  } finally {
-    evalRunning.value = false
-  }
-}
+// 检索评测已迁移至独立页面（/admin/eval，菜单「检索评测」）
 
 onMounted(load)
 </script>
@@ -609,31 +492,6 @@ onMounted(load)
 .head-actions { display: flex; gap: 10px; align-items: center; }
 .op { display: flex; align-items: center; gap: 10px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
-
-/* 评测模态窗 */
-.modal-lg { width: min(760px, 94vw); max-height: 88vh; overflow: auto; }
-.modal-body { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
-.eval-editor {
-  width: 100%; font-family: var(--mono); font-size: 12px; line-height: 1.6;
-  padding: 10px; border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--panel); color: var(--text); resize: vertical;
-}
-.eval-run-row { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
-.eval-run-row .lbl { flex: none; font-size: 13px; color: var(--muted); }
-.eval-run-row input { width: 90px; }
-.eval-summary { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 4px; }
-.eval-summary .metric {
-  flex: 1; min-width: 120px; display: flex; flex-direction: column; gap: 2px;
-  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--panel);
-}
-.eval-summary .m-val { font-size: 20px; font-weight: 700; font-family: var(--mono); }
-.eval-summary .m-lbl { font-size: 12px; color: var(--muted); }
-.eval-item { margin-top: 16px; }
-.eval-item-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
-.badge.ok { color: var(--success, #16a34a); border-color: var(--success, #16a34a); }
-.badge.warn { color: var(--warning, #d97706); border-color: var(--warning, #d97706); }
-.badge.bad { color: var(--destructive); border-color: var(--destructive); }
 
 /* 工作区（满高） */
 .kb-workspace {

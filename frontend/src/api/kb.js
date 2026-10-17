@@ -91,3 +91,11 @@ export async function getChunk(kbId, source, chunkIdx) {
   const params = new URLSearchParams({ source, chunk_idx: String(chunkIdx ?? 0) })
   return jsonFetch(`/api/kb/${encodeURIComponent(kbId)}/chunk?${params}`)
 }
+
+/** 重新入库：删除旧片段并按当前分片策略从留档原文件重建。 */
+export async function reingestDocument(kbId, file) {
+  return jsonFetch(
+    `/api/kb/${encodeURIComponent(kbId)}/documents/reingest?file=${encodeURIComponent(file)}`,
+    { method: 'POST' }
+  )
+}

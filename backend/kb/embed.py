@@ -92,6 +92,12 @@ def embed_query(text: str) -> tuple:
     return dense, _to_sparse_vec(sp)
 
 
+def sparse_query(text: str) -> models.SparseVector:
+    """仅生成稀疏（BM25）向量——本地 fastembed，不依赖外部服务；检索降级路径用。"""
+    sp = list(_ensure_sparse().embed([text]))[0]
+    return _to_sparse_vec(sp)
+
+
 def is_dense_available() -> bool:
     try:
         from agent.model_store import get_default_sync
