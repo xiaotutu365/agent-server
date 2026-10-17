@@ -22,3 +22,7 @@ backend/qdrant_data/
 # Node
 frontend/node_modules/
 frontend/dist/
+
+# TRAE agent-skills 本地工具产物
+.agents/
+skills-lock.json
