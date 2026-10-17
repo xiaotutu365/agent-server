@@ -5,86 +5,98 @@
         <h2>检索评测</h2>
         <p class="hint">对指定知识库运行评测集，量化检索质量：Recall@k / MRR 自算 + Ragas context 指标（双轨）。</p>
       </div>
-      <div class="kb-picker">
-        <label class="lbl" for="eval-kb">知识库</label>
-        <select id="eval-kb" v-model="current" :disabled="loadingKbs">
-          <option v-for="k in kbs" :key="k.kb_id" :value="k.kb_id">{{ k.kb_id }}</option>
-        </select>
-      </div>
     </header>
 
     <p v-if="!kbs.length && !loadingKbs" class="empty">暂无知识库，请先在「知识库管理」创建并上传文档。</p>
 
-    <template v-if="current">
-      <section class="card pad" aria-label="评测集编辑">
-        <div class="field-head">
-          <label class="lbl" for="eval-editor">评测集（JSON：query + expected_files，可选 reference）</label>
-          <button class="link" @click="doSaveEvalSet">保存评测集</button>
+    <div v-if="current" class="cols">
+      <!-- 左栏：评测配置 -->
+      <aside class="col-left card pad" aria-label="评测配置">
+        <div class="cfg-block">
+          <label class="lbl" for="eval-kb">知识库</label>
+          <select id="eval-kb" v-model="current" :disabled="loadingKbs" class="kb-select">
+            <option v-for="k in kbs" :key="k.kb_id" :value="k.kb_id">{{ k.kb_id }}</option>
+          </select>
         </div>
-        <textarea
-          id="eval-editor"
-          v-model="evalText"
-          class="eval-editor"
-          rows="10"
-          spellcheck="false"
-          placeholder='[{"query": "…", "expected_files": ["a.md"], "reference": "期望片段原文（可选）"}]'
-        ></textarea>
-        <p v-if="evalTemplate" class="cfg-hint">当前为示例模板，请替换为真实评测问题后保存。</p>
-        <p class="cfg-hint">
-          expected_files 驱动 Recall@k / MRR（零 LLM 依赖）；reference 用于 Ragas context 指标（需配置默认 chat 模型作 judge，未配置时自动跳过）。
-        </p>
-      </section>
 
-      <section class="card pad run-row" aria-label="运行评测">
-        <label class="lbl" for="eval-topk">top_k</label>
-        <input id="eval-topk" v-model.number="evalTopK" type="number" min="1" step="1" />
-        <button class="btn btn-primary" :disabled="evalRunning || !evalItems.length" @click="doRunEval">
-          {{ evalRunning ? '评测中…' : '运行评测' }}
-        </button>
-        <span class="cfg-hint">共 {{ evalItems.length }} 条评测问题</span>
-      </section>
-
-      <div v-if="evalError" class="err">{{ evalError }}</div>
-
-      <template v-if="evalResult">
-        <section class="card pad" aria-label="汇总指标">
-          <h3 class="sec-title">汇总指标</h3>
-          <div class="eval-summary">
-            <div class="metric"><span class="m-val">{{ pct(evalResult.summary.recall_at_k) }}</span><span class="m-lbl">Recall@k</span></div>
-            <div class="metric"><span class="m-val">{{ evalResult.summary.mrr.toFixed(3) }}</span><span class="m-lbl">MRR</span></div>
-            <template v-if="evalResult.summary.ragas_available">
-              <div class="metric"><span class="m-val">{{ pct(evalResult.summary.context_precision) }}</span><span class="m-lbl">Ragas Precision</span></div>
-              <div class="metric"><span class="m-val">{{ pct(evalResult.summary.context_recall) }}</span><span class="m-lbl">Ragas Recall</span></div>
-            </template>
+        <div class="cfg-block grow">
+          <div class="field-head">
+            <label class="lbl" for="eval-editor">评测集（JSON）</label>
+            <button class="link" @click="doSaveEvalSet">保存评测集</button>
           </div>
-          <p v-if="evalResult.summary.ragas_error" class="cfg-hint">Ragas 指标未计算：{{ evalResult.summary.ragas_error }}</p>
-        </section>
+          <textarea
+            id="eval-editor"
+            v-model="evalText"
+            class="eval-editor"
+            rows="14"
+            spellcheck="false"
+            placeholder='[{"query": "…", "expected_files": ["a.md"], "reference": "期望片段原文（可选）"}]'
+          ></textarea>
+          <p v-if="evalTemplate" class="cfg-hint">当前为示例模板，请替换为真实评测问题后保存。</p>
+          <p class="cfg-hint">
+            expected_files 驱动 Recall@k / MRR（零 LLM 依赖）；reference 用于 Ragas context 指标（需配置默认 chat 模型作 judge，未配置时自动跳过）。
+          </p>
+        </div>
 
-        <section aria-label="逐条结果">
-          <h3 class="sec-title">逐条明细（{{ evalResult.items.length }} 条）</h3>
-          <article v-for="(it, i) in evalResult.items" :key="i" class="card pad eval-item">
-            <header class="eval-item-head">
-              <strong class="q">{{ it.query }}</strong>
-              <span class="badge" :class="it.recall_at_k >= 1 ? 'badge-ok-line' : 'badge-warn-line'">
-                Recall {{ pct(it.recall_at_k) }} · RR {{ it.reciprocal_rank.toFixed(2) }}
-              </span>
-            </header>
-            <div class="hits">
-              <article v-for="(h, j) in it.hits" :key="j" class="result">
-                <div class="meta">
-                  <span class="src">{{ h.source || '未知来源' }}</span>
-                  <span class="idx">rank {{ j + 1 }} · #{{ (h.chunk_idx ?? 0) + 1 }}</span>
-                  <span v-if="typeof h.score === 'number'" class="score">RRF {{ h.score.toFixed(3) }}</span>
-                  <span class="badge" :class="h.hit ? 'badge-ok-line' : 'badge-bad-line'">{{ h.hit ? '命中' : '未命中' }}</span>
-                </div>
-                <p class="content">{{ h.text }}</p>
-              </article>
-              <p v-if="!it.hits.length" class="empty" role="status">无召回结果。</p>
+        <div class="cfg-block run-row">
+          <label class="lbl" for="eval-topk">top_k</label>
+          <input id="eval-topk" v-model.number="evalTopK" type="number" min="1" step="1" />
+          <button class="btn btn-primary" :disabled="evalRunning || !evalItems.length" @click="doRunEval">
+            {{ evalRunning ? '评测中…' : '运行评测' }}
+          </button>
+          <span class="cfg-hint">共 {{ evalItems.length }} 条评测问题</span>
+        </div>
+
+        <div v-if="evalError" class="err" role="alert">{{ evalError }}</div>
+      </aside>
+
+      <!-- 右栏：评测结果 -->
+      <section class="col-right" aria-label="评测结果">
+        <template v-if="evalResult">
+          <div class="card pad" aria-label="汇总指标">
+            <h3 class="sec-title">汇总指标</h3>
+            <div class="eval-summary">
+              <div class="metric"><span class="m-val">{{ pct(evalResult.summary.recall_at_k) }}</span><span class="m-lbl">Recall@k</span></div>
+              <div class="metric"><span class="m-val">{{ evalResult.summary.mrr.toFixed(3) }}</span><span class="m-lbl">MRR</span></div>
+              <template v-if="evalResult.summary.ragas_available">
+                <div class="metric"><span class="m-val">{{ pct(evalResult.summary.context_precision) }}</span><span class="m-lbl">Ragas Precision</span></div>
+                <div class="metric"><span class="m-val">{{ pct(evalResult.summary.context_recall) }}</span><span class="m-lbl">Ragas Recall</span></div>
+              </template>
             </div>
-          </article>
-        </section>
-      </template>
-    </template>
+            <p v-if="evalResult.summary.ragas_error" class="cfg-hint">Ragas 指标未计算：{{ evalResult.summary.ragas_error }}</p>
+          </div>
+
+          <div aria-label="逐条结果">
+            <h3 class="sec-title item-title">逐条明细（{{ evalResult.items.length }} 条）</h3>
+            <article v-for="(it, i) in evalResult.items" :key="i" class="card pad eval-item">
+              <header class="eval-item-head">
+                <strong class="q">{{ it.query }}</strong>
+                <span class="badge" :class="it.recall_at_k >= 1 ? 'badge-ok-line' : 'badge-warn-line'">
+                  Recall {{ pct(it.recall_at_k) }} · RR {{ it.reciprocal_rank.toFixed(2) }}
+                </span>
+              </header>
+              <div class="hits">
+                <article v-for="(h, j) in it.hits" :key="j" class="result">
+                  <div class="meta">
+                    <span class="src">{{ h.source || '未知来源' }}</span>
+                    <span class="idx">rank {{ j + 1 }} · #{{ (h.chunk_idx ?? 0) + 1 }}</span>
+                    <span v-if="typeof h.score === 'number'" class="score">RRF {{ h.score.toFixed(3) }}</span>
+                    <span class="badge" :class="h.hit ? 'badge-ok-line' : 'badge-bad-line'">{{ h.hit ? '命中' : '未命中' }}</span>
+                  </div>
+                  <p class="content">{{ h.text }}</p>
+                </article>
+                <p v-if="!it.hits.length" class="empty" role="status">无召回结果。</p>
+              </div>
+            </article>
+          </div>
+        </template>
+
+        <div v-else class="card pad placeholder" role="status">
+          <h3 class="sec-title">还没有评测结果</h3>
+          <p class="cfg-hint">在左侧编辑评测集并设置 top_k，点击「运行评测」后，这里会显示汇总指标与逐条召回明细。</p>
+        </div>
+      </section>
+    </div>
   </div>
 </template>
 
@@ -194,22 +206,43 @@ onMounted(loadKbs)
 </script>
 
 <style scoped>
-.eval-page { display: flex; flex-direction: column; gap: 14px; max-width: 980px; }
-.kb-picker { display: flex; align-items: center; gap: 8px; }
-.kb-picker select { min-width: 180px; }
+.eval-page { display: flex; flex-direction: column; gap: 14px; max-width: 1320px; }
+/* 左右两栏：左配置（固定宽）/ 右结果（自适应）；窄屏堆叠 */
+.cols {
+  display: grid; grid-template-columns: 400px minmax(0, 1fr);
+  gap: 14px; align-items: start;
+}
+@media (max-width: 960px) {
+  .cols { grid-template-columns: minmax(0, 1fr); }
+}
+
+.col-left {
+  display: flex; flex-direction: column; gap: 14px;
+  position: sticky; top: 14px;
+}
+@media (max-width: 960px) { .col-left { position: static; } }
+.cfg-block { display: flex; flex-direction: column; gap: 6px; }
+.cfg-block.grow .eval-editor { flex: 1; min-height: 220px; }
+.kb-select { width: 100%; }
+
 .lbl { font-size: 13px; color: var(--muted); font-weight: 600; }
 .pad { padding: 14px 16px; }
 .sec-title { margin: 0 0 10px; font-size: 14px; }
-.field-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
-.run-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.item-title { margin-top: 2px; }
+.field-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.run-row { border-top: 1px dashed var(--border); padding-top: 12px; }
 .run-row input { width: 90px; }
+.run-row .btn { flex: none; margin-left: auto; }
 
 .eval-editor {
   width: 100%; font-family: var(--mono); font-size: 12px; line-height: 1.6;
   padding: 10px; border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--panel); color: var(--text); resize: vertical;
 }
-.cfg-hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; line-height: 1.5; }
+.cfg-hint { color: var(--muted); font-size: 12px; margin: 0; line-height: 1.5; }
+
+.col-right { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.placeholder .cfg-hint { font-size: 13px; }
 
 .eval-summary { display: flex; flex-wrap: wrap; gap: 10px; }
 .eval-summary .metric {
