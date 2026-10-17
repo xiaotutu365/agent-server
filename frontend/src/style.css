@@ -10,6 +10,7 @@
 
 /* ---------- 设计令牌：亮色（默认） ---------- */
 :root {
+  color-scheme: light;          /* UA 原生部件（select 下拉/滚动条等）跟随亮色 */
   --font-sans: 'Inter', -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
 
@@ -60,6 +61,7 @@
 /* ---------- 设计令牌：暗色（[data-theme="dark"] 或系统偏好且未显式选择） ---------- */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg: #0e1514;
     --panel: #16201e;
     --panel-2: #1c2826;
@@ -91,12 +93,15 @@
   }
 }
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #0e1514;
   --panel: #16201e;
   --panel-2: #1c2826;
   --panel-hover: #1e2b29;
   --border: #2a3a37;
   --border-strong: #364844;
+  --assistant-bubble: #1c2826;
+  --user-bubble: #14302d;
 
   --text: #e7efed;
   --text-2: #c4d2cf;
@@ -234,7 +239,8 @@ button:disabled, input:disabled, select:disabled, textarea:disabled { cursor: no
 .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; font-size: 13px; color: var(--muted); }
 .field > span, .field-label { font-size: 13px; color: var(--muted); }
 .input, .select, .textarea,
-input[type="text"], input[type="password"], input[type="number"], input[type="search"],
+/* :not() 排除特殊控件（外观由 UA/局部样式负责），其余所有 input 类型（含无 type 的裸 input、email 等）统一走设计系统，避免暗色下 UA 默认白底 */
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="color"]),
 select, textarea {
   border: 1px solid var(--border); border-radius: var(--radius);
   padding: 9px 12px; font-family: inherit; font-size: 14px;

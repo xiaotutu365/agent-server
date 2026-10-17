@@ -8,13 +8,14 @@
           对话使用默认大模型、知识库检索使用默认嵌入（与重排）模型；未配置时回退到原环境变量。
         </p>
       </div>
-      <button class="btn btn-primary" @click="startCreate">+ 新增模型</button>
+      <button type="button" class="btn btn-primary" @click="startCreate">+ 新增模型</button>
     </div>
 
     <div v-if="error" class="err">{{ error }}</div>
 
     <div class="tabs">
       <button
+        type="button"
         v-for="t in tabs"
         :key="t.value"
         class="tab"
@@ -41,9 +42,9 @@
           <span class="badge" :class="m.type">{{ typeLabel(m.type) }}</span>
           <span v-if="m.is_default" class="star" title="默认">★ 默认</span>
           <span class="spacer"></span>
-          <button class="mini" :disabled="rowTests[m.id]?.loading" @click="testRow(m)">测试</button>
-          <button class="mini" @click="startEdit(m)">编辑</button>
-          <button class="mini danger" @click="del(m)">删除</button>
+          <button type="button" class="mini" :disabled="rowTests[m.id]?.loading" :aria-busy="rowTests[m.id]?.loading" @click="testRow(m)">{{ rowTests[m.id]?.loading ? '测试中…' : '测试' }}</button>
+          <button type="button" class="mini" @click="startEdit(m)">编辑</button>
+          <button type="button" class="mini danger" @click="del(m)">删除</button>
         </div>
         <div class="m-meta mono">
           <span>model: {{ m.model || '—' }}</span>
@@ -54,7 +55,7 @@
           <span v-if="m.api_key">api_key: ••••••••</span>
           <span v-else>api_key: —</span>
         </div>
-        <div v-if="rowTests[m.id] && rowTests[m.id].detail" class="m-test" :class="rowTests[m.id].ok ? 'ok' : 'fail'">
+        <div v-if="rowTests[m.id] && rowTests[m.id].detail" class="m-test" role="status" aria-live="polite" :class="rowTests[m.id].ok ? 'ok' : 'fail'">
           {{ rowTests[m.id].ok ? '✓' : '✗' }} {{ rowTests[m.id].detail }}<span v-if="rowTests[m.id].latency_ms"> · {{ rowTests[m.id].latency_ms }}ms</span>
         </div>
       </div>
@@ -94,6 +95,7 @@
         <label class="field">
           <span>API Key</span>
           <input v-model="form.api_key" type="password" :placeholder="placeholderKey" />
+          <span class="field-note">可选；留空则回退到环境变量（.env）</span>
         </label>
 
         <label class="field">
@@ -131,16 +133,16 @@
           <label class="field"><span>Top N 返回条数</span><input v-model="form.extra.top_n" type="number" min="1" step="1" placeholder="如 5" /></label>
         </div>
 
-        <div v-if="formError" class="err" style="margin-top: 4px;">{{ formError }}</div>
+        <div v-if="formError" class="err form-msg">{{ formError }}</div>
 
-        <div v-if="formTest" class="test-result" :class="formTest.ok ? 'ok' : 'fail'">
+        <div v-if="formTest" class="test-result" role="status" aria-live="polite" :class="formTest.ok ? 'ok' : 'fail'">
           {{ formTest.ok ? '✓' : '✗' }} {{ formTest.detail }}<span v-if="formTest.latency_ms"> · {{ formTest.latency_ms }}ms</span>
         </div>
 
         <div class="modal-actions">
-          <button class="btn btn-ghost" @click="cancel">取消</button>
-          <button class="btn btn-ghost" :disabled="testing || !form.model" @click="testForm">测试连接</button>
-          <button class="btn btn-primary" :disabled="saving" @click="save">
+          <button type="button" class="btn btn-ghost" @click="cancel">取消</button>
+          <button type="button" class="btn btn-ghost" :disabled="testing || !form.model" :aria-busy="testing" @click="testForm">{{ testing ? '测试中…' : '测试连接' }}</button>
+          <button type="button" class="btn btn-primary" :disabled="saving" @click="save">
             {{ saving ? '保存中…' : '保存' }}
           </button>
         </div>
@@ -341,8 +343,8 @@ onMounted(load)
 .mini { border: 1px solid var(--border); background: transparent; color: var(--muted); padding: 4px 12px; border-radius: 7px; cursor: pointer; font-size: 12px; }
 .mini:hover { background: var(--panel-hover); color: var(--text); }
 .mini.danger { color: var(--destructive); }
-.m-meta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 12px; color: var(--muted); }
-.m-test { margin-top: 8px; font-size: 12px; padding: 6px 10px; border-radius: var(--radius-sm); display: inline-block; }
+.m-meta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.m-test { margin-top: 8px; font-size: 12px; padding: 6px 10px; border-radius: var(--radius-sm); display: inline-block; max-width: 100%; }
 .m-test.ok { background: color-mix(in srgb, var(--success) 12%, transparent); color: var(--success); }
 .m-test.fail { background: color-mix(in srgb, var(--destructive) 10%, transparent); color: var(--destructive); }
 .test-result { margin-top: 6px; padding: 8px 12px; border-radius: var(--radius-sm); font-size: 13px; }
@@ -351,11 +353,21 @@ onMounted(load)
 
 .req { color: var(--destructive); font-style: normal; margin-left: 2px; }
 .fld-err { font-size: 12px; color: var(--destructive); margin-top: 4px; }
-.field input.invalid, .field select.invalid { border-color: var(--destructive); }
-.fld-sec { border-top: 1px dashed var(--border); margin-top: 4px; padding-top: 12px; }
+.field input.invalid, .field select.invalid {
+  border-color: var(--destructive);
+  background: color-mix(in srgb, var(--destructive) 5%, var(--bg));
+}
+.fld-sec { background: var(--panel-2); border-radius: var(--radius); padding: 14px 16px; margin-top: 8px; }
 .sec-title { font-size: 12px; color: var(--muted); margin-bottom: 10px; font-weight: 600; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
 .grid2 .field { margin-bottom: 10px; }
+.field-note { font-size: 12px; color: var(--muted); line-height: 1.4; margin-top: 2px; }
+.form-msg { margin-top: 8px; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
 .mono { font-family: var(--mono); }
+.mini:focus-visible { outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent); outline-offset: 2px; }
+@media (max-width: 560px) {
+  .grid2 { grid-template-columns: 1fr; }
+  .modal { padding: 18px 16px; }
+}
 </style>
