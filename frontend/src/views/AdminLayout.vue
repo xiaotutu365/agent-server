@@ -43,6 +43,7 @@ const groups = [
     ] },
   { title: '知识库', icon: 'book', children: [
       { to: '/admin/kb', label: '知识库管理' },
+      { to: '/admin/eval', label: '检索评测' },
     ] },
   { title: '模型', icon: 'brain', children: [
       { to: '/admin/models', label: '模型配置' },

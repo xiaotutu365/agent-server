@@ -7,6 +7,7 @@ import UserListView from '../views/UserListView.vue'
 import RoleManagementView from '../views/RoleManagementView.vue'
 import DepartmentManagementView from '../views/DepartmentManagementView.vue'
 import KnowledgeBase from '../components/KnowledgeBase.vue'
+import KbEvalView from '../views/KbEvalView.vue'
 import LoginView from '../views/LoginView.vue'
 import LangGraphLabView from '../views/LangGraphLabView.vue'
 import EDAView from '../views/EDAView.vue'
@@ -38,6 +39,7 @@ const router = createRouter({
         { path: 'roles', name: 'role-list', component: RoleManagementView },
         { path: 'departments', name: 'dept-list', component: DepartmentManagementView },
         { path: 'kb', name: 'kb-admin', component: KnowledgeBase },
+        { path: 'eval', name: 'kb-eval', component: KbEvalView },
         { path: 'tools', name: 'tool-list', component: ToolsView },
         { path: 'mcp', name: 'mcp-servers', component: McpServersView },
         { path: 'models', name: 'model-list', component: ModelConfigView },
