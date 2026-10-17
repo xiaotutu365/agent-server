@@ -10,23 +10,56 @@ import kb.settings as settings
 from kb import store
 
 
-def _rrf(result_lists: list, k: int = 60) -> list:
-    """Reciprocal Rank Fusion：多个结果列表按排名融合，返回 [(hit, score)] 按分数降序。"""
+def _rrf(result_lists: list, k: int = 60, weights: list = None) -> list:
+    """Reciprocal Rank Fusion：多个结果列表按排名融合，返回 [(hit, score)] 按分数降序。
+
+    weights 为每路权重（如混合检索传 [vector_weight, 1-vector_weight]），
+    None 时各路等权（现行为）。
+    """
+    weights = weights or [1.0] * len(result_lists)
     fused = {}
-    for hits in result_lists:
+    for w, hits in zip(weights, result_lists):
         for rank, hit in enumerate(hits):
             entry = fused.setdefault(hit.id, {"hit": hit, "score": 0.0})
-            entry["score"] += 1.0 / (k + rank + 1)
+            entry["score"] += w / (k + rank + 1)
     ranked = sorted(fused.values(), key=lambda e: e["score"], reverse=True)
     return [(e["hit"], e["score"]) for e in ranked]
 
 
-def hybrid_search_ex(kb_id: str, query: str, top_k: int = None, candidate: int = None, rrf_k: int = None) -> tuple:
+def _apply_threshold(ranked: list, dense_scores: dict, rerank_scores: dict, threshold: float) -> list:
+    """按相似度阈值过滤 [(hit, score)] 列表（rerank 之后、截断 top_k 之前）。
+
+    分数源优先级：rerank relevance_score > dense cosine 分（RRF 分不归一，不可作阈值）。
+    - 有 rerank 分：缺失分数视为 0（不达标）
+    - 无 rerank：按 dense cosine 分过滤；纯 sparse 召回（无 cosine 分）的片段保留不误杀
+    - threshold <= 0：不过滤（现行为）
+    """
+    if threshold is None or threshold <= 0:
+        return ranked
+    if rerank_scores:
+        return [(h, s) for h, s in ranked if rerank_scores.get(h.id, 0.0) >= threshold]
+    return [(h, s) for h, s in ranked
+            if h.id not in dense_scores or dense_scores[h.id] >= threshold]
+
+
+def hybrid_search_ex(
+    kb_id: str,
+    query: str,
+    top_k: int = None,
+    candidate: int = None,
+    rrf_k: int = None,
+    vector_weight: float = None,
+    similarity_threshold: float = None,
+) -> tuple:
     """同 hybrid_search，另返回降级原因（空串=正常路径），供 API/工具层即使零结果也提示。"""
     s = settings.get_settings()
     top_k = s["top_k"] if top_k is None else top_k
     candidate = s["candidate"] if candidate is None else candidate
     rrf_k = s["rrf_k"] if rrf_k is None else rrf_k
+    vector_weight = s["vector_weight"] if vector_weight is None else vector_weight
+    similarity_threshold = (
+        s["similarity_threshold"] if similarity_threshold is None else similarity_threshold
+    )
     if not store.kb_exists(kb_id):
         return [], ""
     client = store.get_client()
@@ -41,20 +74,23 @@ def hybrid_search_ex(kb_id: str, query: str, top_k: int = None, candidate: int =
         dense, sparse = None, embed.sparse_query(query)
 
     dense_hits = []
+    dense_scores = {}  # hit.id -> dense cosine 分（阈值过滤用；降级时为空即整体跳过）
     if dense is not None:
         dense_hits = client.query_points(
             collection_name=name,
             query=dense, using=cfg.DENSE_NAME,
             limit=candidate, with_payload=True,
         ).points
+        dense_scores = {h.id: h.score for h in dense_hits if h.payload}
     sparse_hits = client.query_points(
         collection_name=name,
         query=sparse, using=cfg.SPARSE_NAME,
         limit=candidate, with_payload=True,
     ).points
 
-    fused = _rrf([dense_hits, sparse_hits], k=rrf_k)
-    ranked = _maybe_rerank(query, fused)
+    fused = _rrf([dense_hits, sparse_hits], k=rrf_k, weights=[vector_weight, 1.0 - vector_weight])
+    ranked, rerank_scores = _maybe_rerank(query, fused)
+    ranked = _apply_threshold(ranked, dense_scores, rerank_scores, similarity_threshold)
 
     docs = []
     for hit, score in ranked[:top_k]:
@@ -67,15 +103,28 @@ def hybrid_search_ex(kb_id: str, query: str, top_k: int = None, candidate: int =
     return docs, fallback
 
 
-def hybrid_search(kb_id: str, query: str, top_k: int = None, candidate: int = None, rrf_k: int = None) -> list:
+def hybrid_search(
+    kb_id: str,
+    query: str,
+    top_k: int = None,
+    candidate: int = None,
+    rrf_k: int = None,
+    vector_weight: float = None,
+    similarity_threshold: float = None,
+) -> list:
     """混合检索，返回 Document 列表（保持既有签名；需要降级原因用 hybrid_search_ex）。"""
-    return hybrid_search_ex(kb_id, query, top_k=top_k, candidate=candidate, rrf_k=rrf_k)[0]
+    return hybrid_search_ex(
+        kb_id, query, top_k=top_k, candidate=candidate, rrf_k=rrf_k,
+        vector_weight=vector_weight, similarity_threshold=similarity_threshold,
+    )[0]
 
 
-def _maybe_rerank(query: str, hits: list) -> list:
+def _maybe_rerank(query: str, hits: list) -> tuple:
     """若配置了默认「重排(rerank)」模型，则对候选集重排；任何失败都回退 RRF 顺序。
 
-    入参/出参均为 [(hit, rrf_score)]（score 为 RRF 融合分，rerank 只影响顺序）。
+    入参为 [(hit, rrf_score)]；返回 (ranked, rerank_scores)：
+    - ranked：[(hit, rrf_score)] 重排后列表（展示分保持 RRF 融合分，rerank 只影响顺序）
+    - rerank_scores：{hit_id: relevance_score}，供相似度阈值过滤；未配置/失败时为 {}
     兼容常见 rerank 接口（Cohere / Jina / Voyage 等）：POST base_url，
     body 为 {model, query, documents}，返回 {results|data:[{index, relevance_score|score}]}。
     """
@@ -84,7 +133,7 @@ def _maybe_rerank(query: str, hits: list) -> list:
 
         rm = get_default_sync("rerank")
         if not rm or not rm.get("model"):
-            return hits
+            return hits, {}
         import json as _json
         import urllib.request
 
@@ -106,11 +155,12 @@ def _maybe_rerank(query: str, hits: list) -> list:
             if isinstance(idx, int) and 0 <= idx < len(hits):
                 scored.append((idx, score if isinstance(score, (int, float)) else 0.0))
         if not scored:
-            return hits
+            return hits, {}
         scored.sort(key=lambda x: x[1], reverse=True)
-        return [hits[i] for i, _ in scored]
+        rerank_scores = {hits[i][0].id: s for i, s in scored}
+        return [hits[i] for i, _ in scored], rerank_scores
     except Exception:  # noqa: BLE001
-        return hits
+        return hits, {}
 
 
 class KbRetriever(BaseRetriever):

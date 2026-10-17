@@ -146,6 +146,22 @@
           <label class="lbl">RRF 融合系数 (k)</label>
           <input type="number" min="1" step="1" v-model.number="settingsForm.rrf_k" />
         </div>
+        <div class="field-row">
+          <label class="lbl" for="kb-vector-weight">向量权重 ({{ settingsForm.vector_weight }})</label>
+          <input
+            id="kb-vector-weight"
+            type="range" min="0" max="1" step="0.05"
+            v-model.number="settingsForm.vector_weight"
+          />
+        </div>
+        <div class="field-row">
+          <label class="lbl">相似度阈值</label>
+          <input type="number" min="0" step="0.05" v-model.number="settingsForm.similarity_threshold" />
+        </div>
+        <p class="cfg-hint">
+          向量权重：混合检索中语义匹配占比（1-权重为关键词占比），调高偏语义理解、调低偏专有名词等精确匹配。
+          相似度阈值：0 = 不过滤；配置重排模型时按重排分过滤，否则按向量相似度过滤。检索不到预期内容时可调低。
+        </p>
       </section>
 
       <div class="cfg-actions">
@@ -425,6 +441,8 @@ const settingsForm = reactive({
   top_k: 5,
   candidate: 20,
   rrf_k: 60,
+  vector_weight: 0.5,
+  similarity_threshold: 0,
 })
 
 // 分片策略选项：优先用后端返回的枚举，失败时用本地兜底

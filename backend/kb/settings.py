@@ -44,6 +44,9 @@ DEFAULTS = {
     "top_k": 5,
     "candidate": 20,
     "rrf_k": 60,
+    # 检索调优（L8）：向量权重（加权 RRF，dense 贡献 w / sparse 贡献 1-w）与相似度阈值（0=不过滤）
+    "vector_weight": 0.5,
+    "similarity_threshold": 0.0,
 }
 
 _settings = None
@@ -76,6 +79,22 @@ def save_settings(patch: dict) -> dict:
     """合并并持久化配置；随后重置嵌入客户端缓存以应用新配置。"""
     if "chunk_strategy" in patch and patch["chunk_strategy"] not in CHUNK_STRATEGIES:
         raise ValueError(f"非法分片策略: {patch['chunk_strategy']}，可选: {CHUNK_STRATEGIES}")
+    if "vector_weight" in patch:
+        try:
+            w = float(patch["vector_weight"])
+        except (TypeError, ValueError):
+            raise ValueError(f"非法向量权重: {patch['vector_weight']!r}，须为 0~1 的数值")
+        if not 0 <= w <= 1:
+            raise ValueError(f"非法向量权重: {w}，须在 0~1 之间")
+        patch["vector_weight"] = w
+    if "similarity_threshold" in patch:
+        try:
+            t = float(patch["similarity_threshold"])
+        except (TypeError, ValueError):
+            raise ValueError(f"非法相似度阈值: {patch['similarity_threshold']!r}，须为 ≥0 的数值")
+        if t < 0:
+            raise ValueError(f"非法相似度阈值: {t}，须 ≥ 0")
+        patch["similarity_threshold"] = t
     s = get_settings()
     for k, v in patch.items():
         if k in DEFAULTS:
