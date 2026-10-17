@@ -40,6 +40,7 @@ const groups = [
   { title: '智能体', icon: 'bot', children: [
       { to: '/', label: '智能体对话' },
       { to: '/admin/agents', label: '智能体管理' },
+      { to: '/admin/memory', label: '记忆' },
     ] },
   { title: '知识库', icon: 'book', children: [
       { to: '/admin/kb', label: '知识库管理' },

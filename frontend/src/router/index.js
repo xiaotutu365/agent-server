@@ -14,6 +14,7 @@ import EDAView from '../views/EDAView.vue'
 import ToolsView from '../views/ToolsView.vue'
 import McpServersView from '../views/McpServersView.vue'
 import ModelConfigView from '../views/ModelConfigView.vue'
+import MemoryView from '../views/MemoryView.vue'
 import { isAuthed, tokenRole } from '../auth'
 
 const router = createRouter({
@@ -43,6 +44,7 @@ const router = createRouter({
         { path: 'tools', name: 'tool-list', component: ToolsView },
         { path: 'mcp', name: 'mcp-servers', component: McpServersView },
         { path: 'models', name: 'model-list', component: ModelConfigView },
+        { path: 'memory', name: 'memory-admin', component: MemoryView },
       ],
     },
   ],
