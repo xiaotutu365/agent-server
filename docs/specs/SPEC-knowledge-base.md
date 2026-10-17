@@ -70,8 +70,9 @@
 ### 引用来源
 
 - kb 检索工具返回结构化结果（含 `source/chunk_idx/score`）。
-- `main.py` SSE `tool_end` 事件：当工具属 `kb` 组时，payload 附 `citations: [{file, chunk_idx, score}]`。
-- 前端 ChatView：把本轮 AI 回答关联的 kb `tool_end` citations 渲染为消息下方「来源」标记（文件名 + 片段号；不做全文预览弹窗）。
+- `main.py` SSE `tool_end` 事件：当工具属 `kb` 组时，payload 附 `citations: [{file, kb_id, chunk_idx, score}]`。
+- 前端 ChatView：把本轮 AI 回答关联的 kb `tool_end` citations 渲染为消息下方「来源」标记（文件名 + 片段号）。
+- 引用原文查看（2026-10-17）：`GET /api/kb/{kb_id}/chunk?source=&chunk_idx=` 按 (source, chunk_idx) 精确取片段（`store.get_chunk`，库/片段不存在 404）；前端引用 badge 可点击，弹模态显示片段正文 + 来源/片段号/RRF 分数，Esc / × / 点遮罩关闭。回答可回溯到原文，替代早期"不做全文预览弹窗"的取舍。
 
 ### 前端（AgentEditView.vue）
 
@@ -136,9 +137,10 @@
 - **Ragas 指标**：仅对有 `reference` 的条目构造 `SingleTurnSample(user_input, retrieved_contexts, reference)`，跑 `context_precision / context_recall`；judge LLM = model_store 默认模型（缺配置/调用失败 → `ragas_available: false` 优雅降级，只返回自算指标）
 - 响应：`{items: [...], summary: {recall_at_k, mrr, context_precision?, context_recall?, ragas_available, ragas_error?}}`
 
-### 前端（KnowledgeBase.vue）
+### 前端（KbEvalView.vue，2026-10-17 从 KnowledgeBase.vue 模态窗升级为独立页面）
 
-- 工作区「评测」按钮 → 模态窗：评测集 JSON 编辑（textarea，GET 预填模板）、保存、运行（选 top_k）、结果区（汇总指标卡 + 逐条召回片段列表：来源/排名/片段内容/hit 标记）
+- 独立页面 `/admin/eval`（左侧菜单「知识库 → 检索评测」）：库下拉选择（与路由 query `?kb=` 双向同步，可直达）、评测集 JSON 编辑（textarea，GET 预填/模板提示）、保存、运行（top_k）、汇总指标卡（Recall@k / MRR / Ragas 双轨）+ 逐条明细（问题 + Recall/RR badge + 召回片段卡：来源/排名/片段号/RRF 分数/命中标记/正文）
+- 知识库工作区「评测」按钮改为跳转 `/admin/eval?kb=<current>`，KnowledgeBase.vue 中模态窗及评测逻辑已移除
 
 ### 测试
 
@@ -152,6 +154,34 @@
 - 选库运行评测返回自算指标 + 逐条召回片段；有 reference 且 judge LLM 可用时附 Ragas 指标
 - 全流程不因 ragas 缺失/LLM 缺配置而 5xx
 
+## 能力 L7：重新入库与检索兜底（2026-10-17）
+
+intent: `docs/intent/kb-reingest-and-fallback.md`
+
+### 原文件留档（kb/ingest.py）
+
+- 上传成功后原文件复制到 `data/uploads/{kb_id}/{source}`（`archive_file`，basename 清洗防路径穿越，同库同名覆盖，失败不阻断入库），供重新入库取数据源
+- 仅留档后上传的文档支持重建；存量旧文档需删除重传一次建立留档
+
+### 重新入库
+
+- `ingest.reingest_document(kb_id, source)`：删旧片段 → 从留档按当前分片策略重建（point id 确定性，同 id 覆盖不累积）
+- `POST /api/kb/{kb_id}/documents/reingest?file=`：无留档 404（提示删除重传）；embedding 不可用 400
+- 前端文档行「重新入库」按钮：confirm → 调用 → 成功提示 + 刷新列表
+
+### 检索失败兜底（kb/retrieval.py `hybrid_search_ex`）
+
+- dense 侧**任何故障**（未配置 `EmbeddingUnavailable`、网络连接错误等）→ 降级纯 BM25 关键词检索，不 5xx
+- 降级原因随每条 metadata.fallback 透出；`hybrid_search_ex` 另返回 (docs, fallback)，**零结果时也携带原因**（BM25 对中文按空白分词，中文语料降级召回有限，空结果更需说明）
+- 检索 API 响应顶层 `fallback` 字段；kb 工具输出（LLM 可读）同样透出 `fallback`，AI 会如实告知用户
+- 前端检索结果区显示红色降级提示条
+- 已知局限：fastembed `Qdrant/bm25` 对中文分词效果差，降级后中文查询可能零召回（机制可用，召回质量受模型限制）
+
+### 测试（tests/test_kb_reingest.py、tests/test_kb_fallback.py）
+
+- 留档存在性、重建片段数一致、重复重建不累积、无留档 404、库不存在 404
+- EmbeddingUnavailable 与 ConnectionError 两类故障均降级且带标记；正常路径无标记；search API 零结果也透出 fallback；工具输出带 fallback
+
 ## 验收（整体）
 
 1. `pytest backend/tests/` 全绿。
@@ -160,12 +190,12 @@
 
 ## 非目标
 
-OCR/扫描件、网页爬取、文档级权限、多租户共享库、引用全文预览弹窗；
+OCR/扫描件、网页爬取、文档级权限、多租户共享库（引用全文预览弹窗已于 2026-10-17 实现，见"引用原文查看"）；
 分片高级参数数值可调（chunk size/overlap 输入框、自定义分隔符）、每库独立策略、上传时逐次选择、改策略后自动重建全库、语义切分（`SemanticSplitterNodeParser` 类）；
 评测：评测集编辑 UI、Ragas TestsetGenerator 自动生成评测集、faithfulness/answer relevancy 等生成层指标、LLM 评分、自动回归、多库横向对比（均列二期）。
 
 ## 追溯
 
-- intent: `docs/intent/knowledge-base.md`、`docs/intent/kb-chunking-strategy.md`、`docs/intent/kb-eval.md`
-- tasks: `tasks/knowledge-base/`、`tasks/kb-chunking-strategy/`、`tasks/kb-eval/`
+- intent: `docs/intent/knowledge-base.md`、`docs/intent/kb-chunking-strategy.md`、`docs/intent/kb-eval.md`、`docs/intent/kb-reingest-and-fallback.md`
+- tasks: `tasks/knowledge-base/`、`tasks/kb-chunking-strategy/`、`tasks/kb-eval/`、`tasks/kb-reingest-and-fallback/`
 - ADR: `docs/adr/ADR-001-langchain-text-splitters.md`、`docs/adr/ADR-002-ragas-eval.md`
