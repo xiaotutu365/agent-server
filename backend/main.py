@@ -21,6 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from langgraph.types import Command
+from langchain_core.messages import SystemMessage
 from pydantic import BaseModel
 
 from agent.config_store import (
@@ -40,6 +41,10 @@ from agent.auth import (
     logout_token,
 )
 from kb.api import router as kb_router
+from memory.api import router as memory_router
+from memory import extract as memory_extract
+from memory.store import init_memories_table
+from memory import vector as memory_vector
 
 load_dotenv()
 
@@ -59,6 +64,7 @@ async def lifespan(app: FastAPI):
     await init_users_table()
     await init_roles_departments()
     await seed_admin()
+    await init_memories_table()
     cfg = await load_default_config()
     AGENT = await build_agent(cfg)
     yield
@@ -67,6 +73,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="DeepAgent Server", lifespan=lifespan)
 
 app.include_router(kb_router, dependencies=[Depends(require_admin)])
+app.include_router(memory_router, dependencies=[Depends(require_admin)])
 
 app.add_middleware(
     CORSMiddleware,
@@ -331,6 +338,7 @@ async def delete_thread(thread_id: str, user: dict = Depends(get_current_user)):
 @app.post("/api/chat/stream")
 async def chat_stream(req: ChatRequest, user: dict = Depends(get_current_user)):
     async def event_gen():
+        assistant_text = ""  # 聚合本轮 assistant 回复全文，done 后供记忆抽取
         agent = await get_agent_for(req.system_prompt, req.agent_id)
         lg_thread = f"u{user['id']}:{req.thread_id or 'default'}"
         config = {
@@ -350,6 +358,16 @@ async def chat_stream(req: ChatRequest, user: dict = Depends(get_current_user)):
             inputs = Command(resume=req.resume)
         else:
             inputs = {"messages": [{"role": "user", "content": req.message}]}
+            # 记忆注入：检索到的用户记忆以 SystemMessage 前插（检索异常按无记忆处理）
+            try:
+                mems = await asyncio.to_thread(
+                    memory_vector.search, str(user["id"]), req.message, 5)
+                if mems:
+                    lines = "\n".join(f"- {m.get('content', '')}" for m in mems)
+                    inputs["messages"].insert(0, SystemMessage(
+                        content=f"以下是关于该用户的已知记忆（供参考，勿主动罗列）：\n{lines}"))
+            except Exception:  # noqa: BLE001
+                pass
         try:
             async for ev in agent.astream_events(inputs, config=config, version="v2"):
                 kind = ev["event"]
@@ -364,6 +382,7 @@ async def chat_stream(req: ChatRequest, user: dict = Depends(get_current_user)):
                             if isinstance(b, dict) and b.get("type") == "text"
                         )
                     if text:
+                        assistant_text += text
                         yield sse("token", {"content": text})
 
                 elif kind == "on_tool_start":
@@ -415,6 +434,11 @@ async def chat_stream(req: ChatRequest, user: dict = Depends(get_current_user)):
 
         finally:
             yield sse("done", {})
+            # done 后后台抽取记忆（HITL 恢复轮不抽取）；后台任务静默失败
+            if req.resume is None and (req.message or "").strip():
+                asyncio.create_task(memory_extract.extract_and_save(
+                    str(user["id"]), req.thread_id or "default",
+                    req.message, assistant_text))
 
     return StreamingResponse(
         event_gen(),
