@@ -2,21 +2,24 @@
   <aside class="sidebar">
     <button class="new-btn" @click="$emit('new')" :disabled="busy">＋ 新建会话</button>
     <div class="list">
-      <div
-        v-for="t in threads"
-        :key="t.thread_id"
-        class="item"
-        :class="{ active: t.thread_id === currentId }"
-        role="button"
-        tabindex="0"
-        :aria-current="t.thread_id === currentId ? 'true' : undefined"
-        @click="$emit('select', t.thread_id)"
-        @keydown.enter.prevent="$emit('select', t.thread_id)"
-        @keydown.space.prevent="$emit('select', t.thread_id)"
-      >
-        <span class="item-title">{{ t.title || '新会话' }}</span>
-        <span class="item-time" :title="absTime(t.updated_at)">{{ relTime(t.updated_at) }}</span>
-        <button class="del" aria-label="删除会话" @click.stop="$emit('remove', t.thread_id)">×</button>
+      <div v-for="g in groups" :key="g.label" class="group">
+        <div class="group-title">{{ g.label }}</div>
+        <div
+          v-for="t in g.items"
+          :key="t.thread_id"
+          class="item"
+          :class="{ active: t.thread_id === currentId }"
+          role="button"
+          tabindex="0"
+          :aria-current="t.thread_id === currentId ? 'true' : undefined"
+          @click="$emit('select', t.thread_id)"
+          @keydown.enter.prevent="$emit('select', t.thread_id)"
+          @keydown.space.prevent="$emit('select', t.thread_id)"
+        >
+          <span class="item-title">{{ t.title || '新会话' }}</span>
+          <span class="item-time" :title="absTime(t.updated_at)">{{ relTime(t.updated_at) }}</span>
+          <button class="del" aria-label="删除会话" @click.stop="$emit('remove', t.thread_id)">×</button>
+        </div>
       </div>
       <div v-if="!threads.length" class="empty">暂无历史会话</div>
     </div>
@@ -24,12 +27,39 @@
 </template>
 
 <script setup>
-defineProps({
+import { computed } from 'vue'
+
+const props = defineProps({
   threads: { type: Array, default: () => [] },
   currentId: { type: String, default: '' },
   busy: { type: Boolean, default: false }
 })
 defineEmits(['new', 'select', 'remove'])
+
+// 会话分组（对齐 EvoFlow 需求图）：今天 / 昨天 / 7 天内 / 更早，组内按最近活动倒序
+const groups = computed(() => {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+  const sorted = [...props.threads].sort((a, b) => {
+    const ta = a.updated_at ? new Date(a.updated_at).getTime() : 0
+    const tb = b.updated_at ? new Date(b.updated_at).getTime() : 0
+    return tb - ta
+  })
+  const buckets = { today: [], yesterday: [], week: [], earlier: [] }
+  for (const t of sorted) {
+    const ts = t.updated_at ? new Date(t.updated_at).getTime() : NaN
+    if (isNaN(ts) || ts < startOfToday - 7 * 86400e3) buckets.earlier.push(t)
+    else if (ts >= startOfToday) buckets.today.push(t)
+    else if (ts >= startOfToday - 86400e3) buckets.yesterday.push(t)
+    else buckets.week.push(t)
+  }
+  return [
+    { label: '今天', items: buckets.today },
+    { label: '昨天', items: buckets.yesterday },
+    { label: '7 天内', items: buckets.week },
+    { label: '更早', items: buckets.earlier },
+  ].filter((g) => g.items.length)
+})
 
 // 会话条目相对时间（对齐 EvoFlow 需求图）：刚刚 / Xm / Xh / Xd / 超一周显示日期
 function relTime(iso) {
@@ -75,6 +105,7 @@ function absTime(iso) {
 }
 .new-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.group-title { color: var(--muted); font-size: 11px; padding: 8px 10px 2px; user-select: none; }
 .item {
   display: flex; align-items: center; gap: 6px;
   padding: 9px 10px; border-radius: 10px; cursor: pointer;
