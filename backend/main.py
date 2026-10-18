@@ -47,6 +47,8 @@ from agent.auth import (
 )
 from kb.api import router as kb_router
 from memory.api import router as memory_router
+from flow.api import router as flow_router
+from flow.store import init_flow_tables
 from memory import extract as memory_extract
 from memory.store import init_memories_table
 from memory import vector as memory_vector
@@ -70,6 +72,7 @@ async def lifespan(app: FastAPI):
     await init_roles_departments()
     await seed_admin()
     await init_memories_table()
+    await init_flow_tables()
     cfg = await load_default_config()
     AGENT = await build_agent(cfg)
     yield
@@ -79,6 +82,8 @@ app = FastAPI(title="DeepAgent Server", lifespan=lifespan)
 
 app.include_router(kb_router, dependencies=[Depends(require_admin)])
 app.include_router(memory_router, dependencies=[Depends(require_admin)])
+# flow 路由按端点声明权限（CRUD=admin，发起/审批/查询=登录用户），不挂全局 admin
+app.include_router(flow_router)
 
 app.add_middleware(
     CORSMiddleware,
