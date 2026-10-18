@@ -6,13 +6,16 @@ import { apiFetch } from '../auth'
  *  @param {object} handlers  事件回调
  *  @param {AbortSignal} signal
  *  @param {object|null} resume  HITL 恢复决策（HITLResponse），非空时作为恢复请求
+ *  @param {string|null} modelId 会话级模型选择（SPEC-session-model-select）：
+ *         传字符串时始终携带（''=跟随全局默认）；null 不携带（老行为）
  */
-export async function streamChat(message, threadId, handlers, signal, resume = null, systemPrompt = null, agentId = null) {
+export async function streamChat(message, threadId, handlers, signal, resume = null, systemPrompt = null, agentId = null, modelId = null) {
   const body = resume
     ? { resume, thread_id: threadId }
     : { message, thread_id: threadId }
   if (systemPrompt) body.system_prompt = systemPrompt
   if (agentId) body.agent_id = agentId
+  if (modelId !== null) body.model_id = modelId
   const resp = await apiFetch('/api/chat/stream', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

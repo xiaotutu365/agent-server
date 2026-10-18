@@ -54,7 +54,51 @@ DB_PATH = os.path.join(
 )
 
 
-async def build_agent(config: dict | None = None, system_prompt: str | None = None):
+async def _resolve_llm_config(config: dict, model_id: str | None = None):
+    """解析本次构建使用的 LLM 配置，返回 (model_name, api_key, base_url, llm_params)。
+
+    优先级（SPEC-session-model-select）：会话覆盖条目(model_id) > 默认 llm 条目
+    > Agent 配置 model_name > 环境变量。覆盖条目不存在（已被删除）时回退默认链路。
+    llm_params 为模型条目 extra 中的高级参数（温度/TopP/最大Token/惩罚/超时/停止词），
+    Agent 级 temperature 优先级更高（兼容既有 Agent 配置）。
+    """
+    model_name = config.get("model_name") or os.getenv("MODEL_NAME", "deepseek-flash")
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    base_url = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com")
+    llm_cfg = None
+    try:
+        from agent.model_store import get_default as _get_default_model
+        from agent.model_store import get_model as _get_model
+
+        llm_cfg = await _get_model(model_id) if model_id else None
+        if not llm_cfg:  # 无覆盖 / 覆盖条目已被删除 → 回退全局默认链路
+            llm_cfg = await _get_default_model("llm")
+        if llm_cfg:
+            model_name = llm_cfg.get("model") or model_name
+            if llm_cfg.get("api_key"):
+                api_key = llm_cfg["api_key"]
+            if llm_cfg.get("base_url"):
+                base_url = llm_cfg["base_url"]
+    except Exception:  # noqa: BLE001
+        llm_cfg = None
+
+    # 从所选「大模型」配置的 extra 读取高级参数（温度 / TopP / 最大Token / 惩罚 / 超时 / 停止词）
+    llm_params: dict = {}
+    if llm_cfg:
+        ex = llm_cfg.get("extra")
+        if isinstance(ex, dict):
+            for _k in ("temperature", "top_p", "max_tokens",
+                       "frequency_penalty", "presence_penalty", "timeout", "stop"):
+                if _k in ex and ex[_k] not in (None, ""):
+                    llm_params[_k] = ex[_k]
+    # Agent 级 temperature 优先级更高（兼容既有 Agent 配置）
+    if config.get("temperature") not in (None, ""):
+        llm_params["temperature"] = config["temperature"]
+    return model_name, api_key, base_url, llm_params
+
+
+async def build_agent(config: dict | None = None, system_prompt: str | None = None,
+                      model_id: str | None = None):
     """创建 deepagent（编译后的 LangGraph），带 SQLite 持久化 checkpointer。
 
     system_prompt 非空时覆盖 config 的 system_prompt，用于 EDA 等多角色
@@ -67,39 +111,14 @@ async def build_agent(config: dict | None = None, system_prompt: str | None = No
         HumanInTheLoopMiddleware）。allowed_decisions 取值：
           approve  批准执行                reject   拒绝执行（可选 message 理由）
           respond  由用户回答代替工具返回   edit     修改工具参数后执行
+    model_id 非空时以该模型条目覆盖默认对话模型（会话级模型选择，
+    SPEC-session-model-select）；覆盖条目不存在时自动回退默认链路。
     未传入 config 时使用硬编码兜底（便于独立测试）。
     """
     config = config or {}
 
-    # 统一模型配置：优先使用默认「大模型」条目；无则回退环境变量（兼容旧行为）
-    model_name = config.get("model_name") or os.getenv("MODEL_NAME", "deepseek-flash")
-    api_key = os.getenv("OPENAI_API_KEY", "")
-    base_url = os.getenv("OPENAI_BASE_URL", "https://api.deepseek.com")
-    try:
-        from agent.model_store import get_default as _get_default_model
-
-        llm_cfg = await _get_default_model("llm")
-        if llm_cfg:
-            model_name = llm_cfg.get("model") or model_name
-            if llm_cfg.get("api_key"):
-                api_key = llm_cfg["api_key"]
-            if llm_cfg.get("base_url"):
-                base_url = llm_cfg["base_url"]
-    except Exception:  # noqa: BLE001
-        pass
-
-    # 从默认「大模型」配置的 extra 读取高级参数（温度 / TopP / 最大Token / 惩罚 / 超时 / 停止词）
-    llm_params: dict = {}
-    if llm_cfg:
-        ex = llm_cfg.get("extra")
-        if isinstance(ex, dict):
-            for _k in ("temperature", "top_p", "max_tokens",
-                       "frequency_penalty", "presence_penalty", "timeout", "stop"):
-                if _k in ex and ex[_k] not in (None, ""):
-                    llm_params[_k] = ex[_k]
-    # Agent 级 temperature 优先级更高（兼容既有 Agent 配置）
-    if config.get("temperature") not in (None, ""):
-        llm_params["temperature"] = config["temperature"]
+    # 统一模型配置：会话覆盖条目(model_id) > 默认「大模型」条目 > Agent 配置 > 环境变量
+    model_name, api_key, base_url, llm_params = await _resolve_llm_config(config, model_id)
 
     model_kwargs: dict = {}
     for _k in ("top_p", "max_tokens", "frequency_penalty", "presence_penalty", "timeout"):

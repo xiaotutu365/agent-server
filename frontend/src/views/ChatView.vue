@@ -25,6 +25,17 @@
           </select>
           <span v-if="!agents.length" class="muted">（加载中…）</span>
         </label>
+        <!-- 会话级模型选择（SPEC-session-model-select）：切换仅影响本会话后续消息 -->
+        <label class="head-agent">
+          <span class="head-agent-label">模型</span>
+          <select v-model="selectedModelId">
+            <option value="">默认（跟随全局）</option>
+            <option v-for="m in chatModels" :key="m.id" :value="m.id">
+              {{ m.name }}{{ m.is_default ? '（默认）' : '' }}
+            </option>
+          </select>
+          <span v-if="!chatModels.length" class="muted">（加载中…）</span>
+        </label>
       </div>
       <main class="chat" ref="chatEl">
         <div v-if="!messages.length && !restoring" class="empty">
@@ -127,6 +138,7 @@ import { nextTick, onMounted, reactive, ref, computed } from 'vue'
 import ChatMessage from '../components/MessageBubble.vue'
 import ThreadList from '../components/ThreadList.vue'
 import { streamChat } from '../api/chat'
+import { listChatModels } from '../api/models'
 import { apiFetch } from '../auth'
 
 const messages = reactive([])
@@ -140,6 +152,10 @@ const threadId = ref(localStorage.getItem('lastThreadId') || '')
 // 可选 Agent（聊天页指定使用某个 Agent，含其 MCP 配置）
 const agents = ref([])
 const selectedAgentId = ref('')
+
+// 会话级模型选择（SPEC-session-model-select）：''=跟随全局默认；切换仅影响后续消息
+const chatModels = ref([])
+const selectedModelId = ref('')
 
 // 待用户处理的中断（HITL）：非空时表示图已挂起，等待用户决策/回复
 const pendingInterrupt = ref(null)
@@ -257,6 +273,13 @@ function newThread() {
   threadId.value = id
   localStorage.setItem('lastThreadId', id)
   messages.splice(0, messages.length)
+  selectedModelId.value = '' // 新会话跟随全局默认
+}
+
+async function loadChatModels() {
+  try {
+    chatModels.value = await listChatModels()
+  } catch { /* 忽略：下拉保留「默认」一项 */ }
 }
 
 async function loadAgents() {
@@ -283,6 +306,9 @@ async function switchThread(id) {
   if (streaming.value || id === threadId.value) return
   threadId.value = id
   localStorage.setItem('lastThreadId', id)
+  // 回显该会话的模型覆盖（未选过的会话为「默认」）
+  const t = threads.value.find((x) => x.thread_id === id)
+  selectedModelId.value = (t && t.model_id) || ''
   await restoreThread(id)
   scrollToBottom(true)
 }
@@ -380,7 +406,7 @@ async function runStream(content, assistant, resume = null) {
   streaming.value = true
   controller = new AbortController()
   try {
-    await streamChat(content, threadId.value, makeHandlers(assistant), controller.signal, resume, null, selectedAgentId.value)
+    await streamChat(content, threadId.value, makeHandlers(assistant), controller.signal, resume, null, selectedAgentId.value, selectedModelId.value)
   } catch (err) {
     if (err.name !== 'AbortError') {
       assistant.error = err.message || String(err)
@@ -536,8 +562,12 @@ async function respondInterrupt() {
 
 onMounted(async () => {
   await loadAgents()
+  loadChatModels()
   await loadThreads()
   if (threadId.value) {
+    // 恢复上次会话时同步回显其模型覆盖
+    const t = threads.value.find((x) => x.thread_id === threadId.value)
+    selectedModelId.value = (t && t.model_id) || ''
     await restoreThread(threadId.value)
     scrollToBottom(true)
   } else if (threads.value.length) {

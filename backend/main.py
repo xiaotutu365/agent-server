@@ -11,6 +11,7 @@
 
 import asyncio
 import json
+import logging
 import os
 import time
 from contextlib import asynccontextmanager
@@ -32,6 +33,9 @@ from agent.config_store import (
 from agent.tool_registry import list_tools, ALL_TOOL_NAMES, get_tool_detail
 from agent.model_store import (
     list_models, get_model, get_default, create_model, update_model, delete_model,
+)
+from agent.thread_meta import (
+    get_thread_model, set_thread_model, delete_thread_meta, list_thread_models,
 )
 from agent.auth import (
     init_users_table, seed_admin, verify_login, create_user, list_users,
@@ -93,6 +97,10 @@ class ChatRequest(BaseModel):
     resume: dict | None = None  # HITL 恢复：传入上次 interrupt 对应的决策（HITLResponse）
     system_prompt: str | None = None  # 多角色流水线（如 EDA）：指定角色提示词，后端按提示词缓存 agent
     agent_id: str | None = None  # 指定使用某个 Agent（含其 MCP 服务器配置）；为空则用默认 AGENT
+    model_id: str | None = None  # 会话级模型选择：""=跟随全局默认（清覆盖）；None=老客户端不改；非空=用该模型并持久化
+
+
+logger = logging.getLogger("uvicorn.error")
 
 
 # ── 聊天文件上传（SPEC-chat-ui-evoflow C3.1）──────────────────────────────
@@ -130,26 +138,31 @@ async def upload_chat_file(file: UploadFile):
     return {"name": name, "path": f"uploads/{name}", "size": len(content)}
 
 
-async def get_agent_for(system_prompt: str | None, agent_id: str | None = None):
+async def get_agent_for(system_prompt: str | None, agent_id: str | None = None,
+                        model_id: str | None = None):
     """返回本次请求使用的 agent。
     - 指定 system_prompt：按提示词缓存（多角色流水线）。
     - 指定 agent_id：按 id 加载该 Agent 配置并构建（带缓存，含其 MCP 服务器）。
     - 都不指定：返回全局默认 AGENT。
+    - 指定 model_id（会话级模型选择）：缓存键附加 ::model:{model_id}，
+      不同模型不复用实例；为空时键与既有行为完全一致。
     """
+    key_suffix = f"::model:{model_id}" if model_id else ""
     if system_prompt:
-        cached = AGENT_CACHE.get(system_prompt)
+        cached = AGENT_CACHE.get(system_prompt + key_suffix)
         if cached is not None:
             return cached
         async with AGENT_CACHE_LOCK:
-            cached = AGENT_CACHE.get(system_prompt)
+            cached = AGENT_CACHE.get(system_prompt + key_suffix)
             if cached is not None:
                 return cached
             from agent.deep_agent import build_agent
-            agent = await build_agent(await load_default_config(), system_prompt=system_prompt)
-            AGENT_CACHE[system_prompt] = agent
+            agent = await build_agent(await load_default_config(), system_prompt=system_prompt,
+                                      **({"model_id": model_id} if model_id else {}))
+            AGENT_CACHE[system_prompt + key_suffix] = agent
             return agent
     if agent_id:
-        key = f"agent:{agent_id}"
+        key = f"agent:{agent_id}{key_suffix}"
         cached = AGENT_CACHE.get(key)
         if cached is not None:
             return cached
@@ -161,7 +174,20 @@ async def get_agent_for(system_prompt: str | None, agent_id: str | None = None):
             if not cfg:
                 return AGENT
             from agent.deep_agent import build_agent
-            agent = await build_agent(cfg)
+            agent = await build_agent(cfg, **({"model_id": model_id} if model_id else {}))
+            AGENT_CACHE[key] = agent
+            return agent
+    if model_id:  # 无 prompt/agent 但指定会话模型：按模型构建（缓存键 default::model:{id}）
+        key = f"default{key_suffix}"
+        cached = AGENT_CACHE.get(key)
+        if cached is not None:
+            return cached
+        async with AGENT_CACHE_LOCK:
+            cached = AGENT_CACHE.get(key)
+            if cached is not None:
+                return cached
+            from agent.deep_agent import build_agent
+            agent = await build_agent(await load_default_config(), model_id=model_id)
             AGENT_CACHE[key] = agent
             return agent
     return AGENT
@@ -174,6 +200,21 @@ async def list_agents_public(user: dict = Depends(get_current_user)):
     return {"agents": [
         {"id": a["id"], "name": a["name"], "is_default": bool(a.get("is_default", False))}
         for a in ags
+    ]}
+
+
+@app.get("/api/models/chat")
+async def list_chat_models(user: dict = Depends(get_current_user)):
+    """聊天页「模型」下拉候选（SPEC-session-model-select）。
+
+    普通用户可访问；仅 type=llm 条目摘要（id/name/model/is_default），
+    不暴露 api_key/base_url——密钥管理仍在 /api/admin/models。
+    """
+    models = await list_models("llm")
+    return {"models": [
+        {"id": m["id"], "name": m["name"], "model": m["model"],
+         "is_default": bool(m.get("is_default", False))}
+        for m in models
     ]}
 
 
@@ -314,7 +355,7 @@ def _msg_text(msg) -> str:
 
 @app.get("/api/threads")
 async def list_threads(user: dict = Depends(get_current_user)):
-    """会话列表（按当前用户隔离）：thread_id / 标题 / 更新时间。"""
+    """会话列表（按当前用户隔离）：thread_id / 标题 / 更新时间 / 会话模型覆盖。"""
     prefix = f"u{user['id']}:"
     async with aiosqlite.connect(_db_path()) as conn:
         conn.row_factory = aiosqlite.Row
@@ -325,6 +366,7 @@ async def list_threads(user: dict = Depends(get_current_user)):
         )
         rows = await cur.fetchall()
 
+    metas = await list_thread_models()  # 一次性取全量覆盖（thread_id → model_id）
     threads = []
     for r in rows:
         cfg = {"configurable": {"thread_id": r["thread_id"]}}
@@ -341,6 +383,7 @@ async def list_threads(user: dict = Depends(get_current_user)):
             "thread_id": r["thread_id"][len(prefix):],
             "title": title,
             "updated_at": ts,
+            "model_id": metas.get(r["thread_id"], ""),
         })
     return {"threads": threads}
 
@@ -365,18 +408,60 @@ async def thread_messages(thread_id: str, user: dict = Depends(get_current_user)
 
 @app.delete("/api/threads/{thread_id}")
 async def delete_thread(thread_id: str, user: dict = Depends(get_current_user)):
-    """删除会话（checkpoints/writes 均按 thread_id 级联清理）。"""
+    """删除会话（checkpoints/writes 均按 thread_id 级联清理，含模型覆盖记录）。"""
     lg = f"u{user['id']}:{thread_id}"
     await AGENT.checkpointer.adelete_thread(lg)
+    await delete_thread_meta(lg)
     return {"status": "deleted", "thread_id": thread_id}
+
+
+async def _resolve_session_model(lg_thread: str, req_model_id: str | None) -> str | None:
+    """解析本次消息实际生效的会话模型（SPEC-session-model-select）。
+
+    req_model_id 语义：
+      - None  老客户端/未携带：沿用会话覆盖，无则跟随全局默认
+      - ""    前端选了「默认（跟随全局）」：清除会话覆盖
+      - 非空  使用该模型并持久化为会话覆盖
+    模型不存在或非 llm 类型 → 清理覆盖并回退默认（不中断会话）。
+    """
+    if req_model_id == "":
+        await delete_thread_meta(lg_thread)
+        return None
+
+    async def _valid(mid):
+        if not mid:
+            return False
+        m = await get_model(mid)
+        return bool(m and m.get("type") == "llm")
+
+    if req_model_id is not None:
+        if await _valid(req_model_id):
+            await set_thread_model(lg_thread, req_model_id)
+            return req_model_id
+        await delete_thread_meta(lg_thread)
+        logger.warning("会话 %s 请求的模型 %s 无效，回退全局默认", lg_thread, req_model_id)
+        return None
+
+    stored = await get_thread_model(lg_thread)
+    if await _valid(stored):
+        return stored
+    if stored:
+        await delete_thread_meta(lg_thread)
+        logger.warning("会话 %s 覆盖的模型 %s 已失效，回退全局默认", lg_thread, stored)
+    return None
 
 
 @app.post("/api/chat/stream")
 async def chat_stream(req: ChatRequest, user: dict = Depends(get_current_user)):
     async def event_gen():
         assistant_text = ""  # 聚合本轮 assistant 回复全文，done 后供记忆抽取
-        agent = await get_agent_for(req.system_prompt, req.agent_id)
         lg_thread = f"u{user['id']}:{req.thread_id or 'default'}"
+        # 会话级模型选择（SPEC-session-model-select）：解析失败不阻断会话
+        try:
+            model_id = await _resolve_session_model(lg_thread, req.model_id)
+        except Exception:  # noqa: BLE001
+            model_id = None
+        agent = await get_agent_for(req.system_prompt, req.agent_id, model_id)
         config = {
             "configurable": {
                 "thread_id": lg_thread,
@@ -634,13 +719,17 @@ async def admin_update_model(model_id: str, body: dict, _: dict = Depends(requir
         raise HTTPException(status_code=400, detail=str(e))
     if not m:
         raise HTTPException(status_code=404, detail="模型不存在")
+    # 模型配置变更必须失效 agent 缓存（含会话级 ::model: 键），否则旧配置实例一直被复用
+    AGENT_CACHE.clear()
     return {"model": m}
 
 
 @app.delete("/api/admin/models/{model_id}")
 async def admin_delete_model(model_id: str, _: dict = Depends(require_admin)):
     """删除模型配置。"""
-    return await delete_model(model_id)
+    result = await delete_model(model_id)
+    AGENT_CACHE.clear()  # 同上：删除后清理按模型缓存的实例，会话覆盖在使用时自动回退默认
+    return result
 
 
 @app.post("/api/admin/models/test")

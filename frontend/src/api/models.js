@@ -20,6 +20,11 @@ export async function listModels(type) {
   return (await jsonFetch(`/api/admin/models${q}`)).models || []
 }
 
+/** 聊天页「模型」下拉候选（普通用户）：type=llm 摘要，不含密钥/地址。 */
+export async function listChatModels() {
+  return (await jsonFetch('/api/models/chat')).models || []
+}
+
 export async function createModel(body) {
   return (await jsonFetch('/api/admin/models', {
     method: 'POST',

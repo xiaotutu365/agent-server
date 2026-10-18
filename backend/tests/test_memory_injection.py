@@ -40,7 +40,7 @@ def tmp_db(tmp_path, monkeypatch):
 def client(monkeypatch):
     fake = FakeAgent()
 
-    async def fake_get_agent_for(system_prompt, agent_id=None):
+    async def fake_get_agent_for(system_prompt, agent_id=None, model_id=None):
         return fake
 
     monkeypatch.setattr(main, "get_agent_for", fake_get_agent_for)
