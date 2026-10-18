@@ -15,6 +15,15 @@
         <span v-if="streaming" class="running-badge" role="status" aria-label="会话运行中">
           <span class="dot" aria-hidden="true"></span>Running
         </span>
+        <!-- 任务清单顶栏入口：显示当前会话最新计划进度，点开抽屉（SPEC-chat-ui-evoflow 补充） -->
+        <button
+          v-if="currentPlan.length"
+          class="plan-toggle"
+          :class="{ open: planOpen }"
+          :aria-expanded="planOpen"
+          aria-haspopup="true"
+          @click="planOpen = !planOpen"
+        >任务 {{ planDone }}/{{ currentPlan.length }}</button>
         <span class="head-spacer"></span>
         <label class="head-agent">
           <span class="head-agent-label">Agent</span>
@@ -36,6 +45,12 @@
           </select>
           <span v-if="!chatModels.length" class="muted">（加载中…）</span>
         </label>
+      </div>
+      <!-- 任务清单抽屉：常驻入口点开，覆盖在消息区上方，不占消息流宽度；
+           标题/进度由 PlanPanel 自带头部呈现，此处仅提供关闭按钮 -->
+      <div v-if="planOpen && currentPlan.length" class="plan-drawer" role="region" aria-label="任务清单">
+        <button class="plan-drawer-close" aria-label="收起任务清单" @click="dismissPlan">×</button>
+        <PlanPanel :todos="currentPlan" />
       </div>
       <main class="chat" ref="chatEl">
         <div v-if="!messages.length && !restoring" class="empty">
@@ -134,8 +149,9 @@
 </template>
 
 <script setup>
-import { nextTick, onMounted, reactive, ref, computed } from 'vue'
+import { nextTick, onMounted, onUnmounted, reactive, ref, computed } from 'vue'
 import ChatMessage from '../components/MessageBubble.vue'
+import PlanPanel from '../components/PlanPanel.vue'
 import ThreadList from '../components/ThreadList.vue'
 import { streamChat } from '../api/chat'
 import { listChatModels } from '../api/models'
@@ -156,6 +172,41 @@ const selectedAgentId = ref('')
 // 会话级模型选择（SPEC-session-model-select）：''=跟随全局默认；切换仅影响后续消息
 const chatModels = ref([])
 const selectedModelId = ref('')
+
+// 任务清单抽屉（对齐 EvoFlow 需求图）：顶栏入口显示最新计划进度，agent 更新计划时自动弹出；
+// 用户主动关闭（dismissPlan）后本轮流式期间不再自动弹开，切会话时重置
+const planOpen = ref(false)
+const planDismissed = ref(false)
+const currentPlan = computed(() => {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].plan && messages[i].plan.length) return messages[i].plan
+  }
+  return []
+})
+const planDone = computed(() => currentPlan.value.filter((t) => t.status === 'completed').length)
+
+function dismissPlan() {
+  planOpen.value = false
+  planDismissed.value = true
+}
+
+// Esc / 点击抽屉与入口之外时收起
+function onDocKeydown(e) {
+  if (e.key === 'Escape' && planOpen.value) dismissPlan()
+}
+function onDocClick(e) {
+  if (!planOpen.value) return
+  if (e.target.closest('.plan-drawer') || e.target.closest('.plan-toggle')) return
+  dismissPlan()
+}
+onMounted(() => {
+  document.addEventListener('keydown', onDocKeydown)
+  document.addEventListener('click', onDocClick)
+})
+onUnmounted(() => {
+  document.removeEventListener('keydown', onDocKeydown)
+  document.removeEventListener('click', onDocClick)
+})
 
 // 待用户处理的中断（HITL）：非空时表示图已挂起，等待用户决策/回复
 const pendingInterrupt = ref(null)
@@ -269,6 +320,8 @@ async function restoreThread(id) {
 }
 
 function newThread() {
+  planOpen.value = false
+  planDismissed.value = false
   const id = genId()
   threadId.value = id
   localStorage.setItem('lastThreadId', id)
@@ -303,6 +356,8 @@ function onAgentChange() {
 }
 
 async function switchThread(id) {
+  planOpen.value = false
+  planDismissed.value = false
   if (streaming.value || id === threadId.value) return
   threadId.value = id
   localStorage.setItem('lastThreadId', id)
@@ -372,6 +427,7 @@ function makeHandlers(assistant) {
         content: t.content || '',
         status: t.status || 'pending'
       }))
+      planOpen.value = !planDismissed.value // 更新计划时自动弹出，除非用户已主动关闭
       scrollToBottom()
     },
     onInterrupt(d) {
@@ -589,7 +645,38 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  position: relative; /* 任务清单抽屉的定位锚点 */
 }
+
+/* 任务清单顶栏入口 + 抽屉（对齐 EvoFlow 需求图） */
+.plan-toggle {
+  flex: none; border: 1px solid var(--border); background: var(--panel);
+  color: var(--muted); font-size: 12px; padding: 3px 10px; border-radius: 999px;
+  cursor: pointer; transition: color .15s ease, border-color .15s ease;
+}
+.plan-toggle:hover { color: var(--text); }
+.plan-toggle.open { color: var(--accent); border-color: var(--accent); }
+.plan-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.plan-drawer {
+  position: absolute; top: 54px; right: 16px; z-index: 30;
+  width: 320px; max-height: 62%; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .18); padding: 10px 12px;
+  animation: plan-drawer-in .18s ease-out;
+}
+@keyframes plan-drawer-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.plan-drawer :deep(.plan) { margin-bottom: 0; border: none; background: transparent; padding: 0; }
+.plan-drawer-close {
+  position: absolute; top: 8px; right: 8px; z-index: 1;
+  border: none; background: transparent; color: var(--muted); font-size: 15px;
+  cursor: pointer; line-height: 1; padding: 2px 6px; border-radius: 5px;
+}
+.plan-drawer-close:hover { color: var(--text); background: var(--panel-hover); }
+.plan-drawer-close:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .chat-head {
   flex: none;
@@ -859,5 +946,7 @@ onMounted(async () => {
   .composer { align-items: stretch; flex-direction: column; }
   .send { width: 100%; min-height: 44px; }
   .hitl-panel { margin-left: 14px; margin-right: 14px; }
+  .plan-drawer { width: calc(100vw - 28px); right: 14px; max-height: 55%; }
+  .plan-toggle { padding: 6px 12px; }
 }
 </style>
