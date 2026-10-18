@@ -15,6 +15,7 @@
         @keydown.space.prevent="$emit('select', t.thread_id)"
       >
         <span class="item-title">{{ t.title || '新会话' }}</span>
+        <span class="item-time" :title="absTime(t.updated_at)">{{ relTime(t.updated_at) }}</span>
         <button class="del" aria-label="删除会话" @click.stop="$emit('remove', t.thread_id)">×</button>
       </div>
       <div v-if="!threads.length" class="empty">暂无历史会话</div>
@@ -29,6 +30,26 @@ defineProps({
   busy: { type: Boolean, default: false }
 })
 defineEmits(['new', 'select', 'remove'])
+
+// 会话条目相对时间（对齐 EvoFlow 需求图）：刚刚 / Xm / Xh / Xd / 超一周显示日期
+function relTime(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d)) return ''
+  const s = Math.floor((Date.now() - d.getTime()) / 1000)
+  if (s < 0) return ''
+  if (s < 60) return '刚刚'
+  if (s < 3600) return `${Math.floor(s / 60)}m`
+  if (s < 86400) return `${Math.floor(s / 3600)}h`
+  if (s < 86400 * 7) return `${Math.floor(s / 86400)}d`
+  return `${d.getMonth() + 1}/${d.getDate()}`
+}
+
+function absTime(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return isNaN(d) ? '' : d.toLocaleString()
+}
 </script>
 
 <style scoped>
@@ -66,6 +87,7 @@ defineEmits(['new', 'select', 'remove'])
   font-weight: 600;
 }
 .item-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.item-time { flex: none; color: var(--muted); font-size: 11px; }
 .del {
   flex: none; border: none; background: transparent; color: var(--muted);
   font-size: 16px; cursor: pointer; line-height: 1; padding: 2px 6px; border-radius: 5px;

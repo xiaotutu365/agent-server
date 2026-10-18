@@ -104,3 +104,7 @@ Content-Type: multipart/form-data，字段 file
 1. 发消息触发工具调用时，对话流内可见任务清单进度与工具执行日志（EvoFlow 风格），顶部无「任务清单」按钮
 2. 「+」上传文件后发送消息，agent 能读到该文件内容（冒烟：上传 txt → 让 agent 报告其内容）
 3. 「深度思考」可切换但请求体不含新字段；`npm run build` 与 pytest 全绿
+
+## 补充说明（2026-10-18）
+
+- 需求图（docs/requirements/b35d20344be5cbe62cafffbd445056dd.jpg）对齐补齐：会话条目右侧显示相对时间（刚刚/Xm/Xh/Xd/超一周显示日期，hover 显示绝对时间），数据源为 /api/threads 既有 updated_at（checkpoint created_at）。纯前端，ThreadList.vue 单文件。
