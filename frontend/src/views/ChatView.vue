@@ -11,20 +11,23 @@
 
     <div class="chat-col">
       <div class="chat-head">
-        <span class="chat-head-label">Agent：</span>
-        <select v-model="selectedAgentId" @change="onAgentChange">
-          <option v-for="a in agents" :key="a.id" :value="a.id">
-            {{ a.name }}{{ a.is_default ? '（默认）' : '' }}
-          </option>
-        </select>
-        <span v-if="!agents.length" class="muted">（加载中…）</span>
-        <button class="head-btn" @click="showTasks = !showTasks" :aria-pressed="showTasks">
-          任务清单
-          <span v-if="currentPlan.length" class="badge">{{ doneCount }}/{{ currentPlan.length }}</span>
-        </button>
+        <span class="chat-title" :title="currentThreadTitle">{{ currentThreadTitle }}</span>
+        <span v-if="streaming" class="running-badge" role="status" aria-label="会话运行中">
+          <span class="dot" aria-hidden="true"></span>Running
+        </span>
+        <span class="head-spacer"></span>
+        <label class="head-agent">
+          <span class="head-agent-label">Agent</span>
+          <select v-model="selectedAgentId" @change="onAgentChange">
+            <option v-for="a in agents" :key="a.id" :value="a.id">
+              {{ a.name }}{{ a.is_default ? '（默认）' : '' }}
+            </option>
+          </select>
+          <span v-if="!agents.length" class="muted">（加载中…）</span>
+        </label>
       </div>
       <main class="chat" ref="chatEl">
-        <div v-if="!messages.length" class="empty">
+        <div v-if="!messages.length && !restoring" class="empty">
           <div class="empty-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
@@ -73,43 +76,54 @@
       </div>
 
       <footer class="composer">
-        <textarea
-          v-model="input"
-          ref="inputEl"
-          rows="1"
-          :disabled="!!pendingInterrupt"
-          placeholder="输入消息，Enter 发送，Shift+Enter 换行"
-          @keydown="onKeydown"
-          @input="autoResize"
-        ></textarea>
-        <button v-if="!streaming && !pendingInterrupt" class="send" @click="send()" :disabled="!input.trim()">发送</button>
-        <button v-else-if="streaming && !pendingInterrupt" class="send stop" @click="stop">停止</button>
-        <div v-else class="pending-hint">⏸ 请先处理上方的待确认事项</div>
+        <div class="composer-card" :class="{ disabled: !!pendingInterrupt }">
+          <div v-if="uploadError" class="upload-error" role="alert">⚠ {{ uploadError }}</div>
+          <div v-if="uploadedFiles.length" class="upload-chips" aria-label="已上传文件">
+            <span v-for="(f, i) in uploadedFiles" :key="f.path" class="upload-chip" :title="f.path">
+              <span class="chip-name">{{ f.name }}</span>
+              <span class="chip-size">{{ formatSize(f.size) }}</span>
+              <button class="chip-remove" aria-label="移除文件" @click="removeFile(i)">×</button>
+            </span>
+          </div>
+          <textarea
+            v-model="input"
+            ref="inputEl"
+            rows="3"
+            :disabled="!!pendingInterrupt"
+            placeholder="输入消息，Enter 发送，Shift+Enter 换行"
+            @keydown="onKeydown"
+            @input="autoResize"
+          ></textarea>
+          <div class="composer-bar">
+            <button
+              class="icon-btn"
+              title="上传文件到工作区"
+              aria-label="上传文件"
+              :disabled="!!pendingInterrupt"
+              @click="fileInput && fileInput.click()"
+            >+</button>
+            <input ref="fileInput" type="file" hidden @change="onFilePicked" />
+            <!-- 占位按钮：不随请求发送任何字段（SPEC C3.2），后续接入模型 reasoning 能力 -->
+            <button
+              class="pill"
+              :class="{ active: deepThinking }"
+              title="即将上线"
+              :aria-pressed="deepThinking"
+              @click="deepThinking = !deepThinking"
+            >♾ 深度思考</button>
+            <span class="bar-spacer"></span>
+            <button v-if="!streaming && !pendingInterrupt" class="send" @click="send()" :disabled="!canSend">发送</button>
+            <button v-else-if="streaming && !pendingInterrupt" class="send stop" @click="stop">停止</button>
+            <div v-else class="pending-hint">⏸ 请先处理上方的待确认事项</div>
+          </div>
+        </div>
       </footer>
     </div>
-
-    <aside class="task-panel" v-if="showTasks">
-      <div class="task-head">
-        <span class="task-title">任务清单</span>
-        <span class="task-count" v-if="currentPlan.length">{{ doneCount }}/{{ currentPlan.length }}</span>
-        <button class="task-close" @click="showTasks = false" aria-label="收起任务清单">✕</button>
-      </div>
-      <div class="task-progress" v-if="currentPlan.length">
-        <div class="bar"><div class="bar-fill" :style="{ width: taskPct + '%' }"></div></div>
-      </div>
-      <ul class="task-list" v-if="currentPlan.length">
-        <li v-for="(t, i) in currentPlan" :key="i" :class="taskStatusClass(t.status)">
-          <span class="t-status">{{ taskStatusIcon(t.status) }}</span>
-          <span class="t-content">{{ t.content }}</span>
-        </li>
-      </ul>
-      <div class="task-empty" v-else>暂无任务计划</div>
-    </aside>
   </div>
 </template>
 
 <script setup>
-import { nextTick, onMounted, reactive, ref, computed, watch } from 'vue'
+import { nextTick, onMounted, reactive, ref, computed } from 'vue'
 import ChatMessage from '../components/MessageBubble.vue'
 import ThreadList from '../components/ThreadList.vue'
 import { streamChat } from '../api/chat'
@@ -130,29 +144,47 @@ const selectedAgentId = ref('')
 // 待用户处理的中断（HITL）：非空时表示图已挂起，等待用户决策/回复
 const pendingInterrupt = ref(null)
 
-// 右侧「任务清单」面板：展示最近一份计划 + 进度概览
-const showTasks = ref(false)
-const currentPlan = computed(() => {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const p = messages[i].plan
-    if (p && p.length) return p
-  }
-  return []
+// 顶部标题栏：当前会话标题
+const currentThreadTitle = computed(() => {
+  const t = threads.value.find((x) => x.id === threadId.value)
+  return (t && t.title) || '新对话'
 })
-const doneCount = computed(() => currentPlan.value.filter(t => t.status === 'completed').length)
-const taskPct = computed(() =>
-  currentPlan.value.length ? Math.round(doneCount.value / currentPlan.value.length * 100) : 0
-)
-// 第一次出现计划时自动展开面板（之后用户可手动收起）
-watch(
-  () => currentPlan.value.length,
-  (n, o) => { if (n > 0 && o === 0) showTasks.value = true }
-)
-function taskStatusClass(s) {
-  return s === 'completed' ? 'done' : s === 'in_progress' ? 'doing' : 'pending'
+
+// 输入区功能位（SPEC C3）：文件上传 chip + 深度思考占位
+const uploadedFiles = reactive([]) // {name, path, size}
+const uploadError = ref('')
+const deepThinking = ref(false) // 纯占位，不随请求发送
+const fileInput = ref(null)
+const canSend = computed(() => !!input.value.trim() || uploadedFiles.length > 0)
+
+function formatSize(n) {
+  if (n == null) return ''
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / 1024 / 1024).toFixed(1)} MB`
 }
-function taskStatusIcon(s) {
-  return s === 'completed' ? '✓' : s === 'in_progress' ? '▶' : '○'
+
+function removeFile(i) {
+  uploadedFiles.splice(i, 1)
+}
+
+async function onFilePicked(e) {
+  const f = e.target.files && e.target.files[0]
+  e.target.value = ''
+  if (!f) return
+  uploadError.value = ''
+  const fd = new FormData()
+  fd.append('file', f)
+  try {
+    const r = await apiFetch('/api/chat/upload', { method: 'POST', body: fd })
+    if (!r.ok) {
+      const body = await r.json().catch(() => ({}))
+      throw new Error(body.detail || `上传失败（${r.status}）`)
+    }
+    uploadedFiles.push(await r.json())
+  } catch (err) {
+    uploadError.value = err.message || '上传失败'
+  }
 }
 
 let controller = null
@@ -198,9 +230,15 @@ async function loadThreads() {
   } catch { /* 忽略 */ }
 }
 
+const restoring = ref(false) // 切换会话加载历史中：避免消息清空后空状态图标闪现
+
 async function restoreThread(id) {
+  restoring.value = true
   messages.splice(0, messages.length)
-  if (!id) return
+  if (!id) {
+    restoring.value = false
+    return
+  }
   try {
     const r = await apiFetch(`/api/threads/${id}/messages`)
     if (r.ok) {
@@ -209,7 +247,9 @@ async function restoreThread(id) {
         role: m.role, content: m.content, steps: [], plan: [], citations: [], streaming: false, error: ''
       })))
     }
-  } catch { /* 忽略 */ }
+  } catch { /* 忽略 */ } finally {
+    restoring.value = false
+  }
 }
 
 function newThread() {
@@ -355,12 +395,22 @@ async function runStream(content, assistant, resume = null) {
 }
 
 async function send(text) {
-  const content = (text ?? input.value).trim()
+  let content = (text ?? input.value).trim()
+  // 附带已上传文件路径，agent 经 read_file 读取（SPEC C3.1）
+  // FilesystemBackend root=backend/workspace，工具内相对路径即 uploads/xxx
+  if (!text && uploadedFiles.length) {
+    const paths = uploadedFiles.map((f) => f.path).join('、')
+    content = content
+      ? `${content}\n\n（随消息附带工作区文件：${paths}）`
+      : `（随消息附带工作区文件：${paths}）`
+  }
   if (!content || streaming.value || pendingInterrupt.value) return
 
   if (!threadId.value) newThread()
 
   input.value = ''
+  uploadedFiles.splice(0)
+  uploadError.value = ''
   await nextTick()
   if (inputEl.value) inputEl.value.style.height = 'auto'
 
@@ -515,14 +565,51 @@ onMounted(async () => {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   padding: 10px 20px;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   font-size: 13px;
   color: var(--text);
 }
-.chat-head-label { color: var(--muted); }
+/* 会话标题 + Running 状态（SPEC C2） */
+.chat-title {
+  font-weight: 600;
+  font-size: 14px;
+  max-width: 40%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.running-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+.running-badge .dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--warning);
+  animation: run-blink 1.1s ease-in-out infinite;
+}
+@keyframes run-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.head-spacer { flex: 1; }
+.head-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.head-agent-label { color: var(--muted); }
 .chat-head select {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -533,52 +620,6 @@ onMounted(async () => {
   color: var(--text);
 }
 .chat-head .muted { color: var(--muted); }
-.head-btn {
-  margin-left: auto;
-  display: inline-flex; align-items: center; gap: 6px;
-  border: 1px solid var(--border); background: var(--bg); color: var(--text-2);
-  border-radius: 8px; padding: 6px 10px; font-family: inherit; font-size: 13px; cursor: pointer;
-  transition: background-color .15s ease, border-color .15s ease;
-}
-.head-btn:hover { background: var(--panel-hover); border-color: var(--border-strong); }
-.head-btn .badge {
-  background: var(--primary); color: var(--on-primary);
-  border-radius: 99px; padding: 1px 7px; font-size: 11px; font-weight: 600;
-}
-
-/* ---------- 右侧任务清单面板 ---------- */
-.task-panel {
-  flex: none;
-  width: 264px;
-  border-left: 1px solid var(--border);
-  background: var(--panel);
-  display: flex; flex-direction: column; min-height: 0;
-}
-.task-head {
-  flex: none; display: flex; align-items: center; gap: 8px;
-  padding: 12px 14px; border-bottom: 1px solid var(--border);
-  font-weight: 600; font-size: 13px; color: var(--text);
-}
-.task-title { flex: none; }
-.task-count { margin-left: auto; color: var(--muted); font-weight: 500; }
-.task-close {
-  border: none; background: transparent; color: var(--muted); cursor: pointer;
-  font-size: 13px; padding: 2px 6px; border-radius: 6px;
-}
-.task-close:hover { background: var(--panel-hover); color: var(--text); }
-.task-progress { flex: none; padding: 10px 14px 4px; }
-.bar { height: 6px; border-radius: 99px; background: var(--panel-2); overflow: hidden; }
-.bar-fill { height: 100%; background: var(--primary); transition: width .25s ease; }
-.task-list { list-style: none; margin: 0; padding: 6px 8px 12px; overflow: auto; flex: 1; }
-.task-list li { display: flex; gap: 8px; padding: 8px; border-radius: 8px; font-size: 13px; align-items: flex-start; }
-.task-list li:hover { background: var(--panel-hover); }
-.t-status { width: 16px; text-align: center; flex: none; }
-.task-list .done { color: var(--success); }
-.task-list .doing { color: var(--cta); }
-.task-list .pending { color: var(--muted); }
-.t-content { flex: 1; line-height: 1.45; }
-.task-list li.done .t-content { text-decoration: line-through; color: var(--muted); }
-.task-empty { padding: 24px 14px; color: var(--muted); font-size: 13px; text-align: center; }
 
 .chat {
   flex: 1;
@@ -607,35 +648,111 @@ onMounted(async () => {
 
 .composer {
   flex: none;
-  display: flex;
-  gap: 10px;
-  align-items: flex-end;
-  padding: 10px 20px;
+  padding: 10px 20px 14px;
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
-.composer textarea {
-  flex: 1;
-  resize: none;
+/* EvoFlow 式大圆角输入卡（SPEC C3.3）：内含 chips / textarea / 功能条 */
+.composer-card {
+  max-width: 900px;
+  margin: 0 auto;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px 14px;
+  border-radius: 16px;
+  background: var(--bg);
+  padding: 10px 12px 8px;
+  transition: border-color .15s ease;
+}
+.composer-card:focus-within { border-color: var(--accent); }
+.composer-card.disabled { opacity: 0.6; }
+.composer textarea {
+  display: block;
+  width: 100%;
+  resize: none;
+  border: none;
+  padding: 4px 6px;
   font-family: inherit;
   font-size: 14px;
   line-height: 1.5;
-  background: var(--bg);
+  background: transparent;
   color: var(--text);
   max-height: 160px;
   outline: none;
 }
-.composer textarea:focus { border-color: var(--accent); }
+.composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.bar-spacer { flex: 1; }
+.icon-btn {
+  flex: none;
+  width: 32px; height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.icon-btn:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+/* 深度思考占位 pill：仅视觉切换，不随请求发送（SPEC C3.2） */
+.pill {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.pill:hover { color: var(--text); border-color: var(--border-strong, var(--border)); }
+.pill.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+/* 已上传文件 chips */
+.upload-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 2px 8px; }
+.upload-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 3px 8px;
+  font-size: 12px;
+  color: var(--text);
+  max-width: 260px;
+}
+.chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip-size { color: var(--muted); flex: none; }
+.chip-remove {
+  border: none; background: transparent; color: var(--muted);
+  cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px;
+  border-radius: 4px;
+}
+.chip-remove:hover { color: var(--destructive); }
+.upload-error {
+  color: var(--destructive);
+  font-size: 12px;
+  padding: 2px 2px 6px;
+}
+.pending-hint { color: var(--muted); font-size: 12px; }
 .send {
   flex: none;
   border: none;
   background: var(--cta-strong);
   color: var(--on-cta);
-  padding: 11px 22px;
-  border-radius: 12px;
+  padding: 8px 20px;
+  border-radius: 10px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 600;

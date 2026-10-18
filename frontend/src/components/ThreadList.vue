@@ -56,11 +56,15 @@ defineEmits(['new', 'select', 'remove'])
 .list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
 .item {
   display: flex; align-items: center; gap: 6px;
-  padding: 9px 10px; border-radius: 8px; cursor: pointer;
+  padding: 9px 10px; border-radius: 10px; cursor: pointer;
   font-size: 13px; color: var(--text);
+  transition: background-color .15s ease;
 }
 .item:hover { background: var(--panel-hover); }
-.item.active { background: var(--code-bg); }
+.item.active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-weight: 600;
+}
 .item-title { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .del {
   flex: none; border: none; background: transparent; color: var(--muted);

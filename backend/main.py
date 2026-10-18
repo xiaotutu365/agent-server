@@ -12,11 +12,12 @@
 import asyncio
 import json
 import os
+import time
 from contextlib import asynccontextmanager
 
 import aiosqlite
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -92,6 +93,41 @@ class ChatRequest(BaseModel):
     resume: dict | None = None  # HITL 恢复：传入上次 interrupt 对应的决策（HITLResponse）
     system_prompt: str | None = None  # 多角色流水线（如 EDA）：指定角色提示词，后端按提示词缓存 agent
     agent_id: str | None = None  # 指定使用某个 Agent（含其 MCP 服务器配置）；为空则用默认 AGENT
+
+
+# ── 聊天文件上传（SPEC-chat-ui-evoflow C3.1）──────────────────────────────
+# 保存到 agent 工作区（backend/workspace，见 deep_agent.py FilesystemBackend），
+# agent 通过 read_file 即可读取；前端发送消息时注入文件路径。
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20MB
+_UPLOAD_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workspace")
+UPLOAD_DIR = os.path.join(_UPLOAD_ROOT, "uploads")
+
+
+def _safe_filename(name: str) -> str | None:
+    """文件名安全化：取 basename、去路径/控制字符，空或全非法字符返回 None。"""
+    base = os.path.basename(name or "").strip()
+    cleaned = "".join(c for c in base if c.isalnum() or c in "._- ()[]（）【】 ")
+    cleaned = cleaned.strip(". ")
+    return cleaned or None
+
+
+@app.post("/api/chat/upload", dependencies=[Depends(require_admin)])
+async def upload_chat_file(file: UploadFile):
+    content = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=400, detail="文件超过 20MB 上限")
+    safe = _safe_filename(file.filename)
+    if not safe:
+        raise HTTPException(status_code=400, detail="文件名不安全或为空")
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    dest = os.path.join(UPLOAD_DIR, safe)
+    if os.path.exists(dest):  # 同名不覆盖：加时间戳后缀
+        stem, dot = os.path.splitext(safe)
+        dest = os.path.join(UPLOAD_DIR, f"{stem}_{int(time.time())}{dot}")
+    with open(dest, "wb") as f:
+        f.write(content)
+    name = os.path.basename(dest)
+    return {"name": name, "path": f"uploads/{name}", "size": len(content)}
 
 
 async def get_agent_for(system_prompt: str | None, agent_id: str | None = None):
