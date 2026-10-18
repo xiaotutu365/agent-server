@@ -81,7 +81,8 @@ async def extract_and_save(user_id: str, thread_id: str, user_text: str, assista
         items = _parse_json_array(getattr(reply, "content", reply))[:MAX_MEMORIES]
         for content in items:
             entry = await store.add_memory(user_id, content, source_thread=thread_id)
-            vector.upsert_memory(entry)
+            # 同步 embedding/Qdrant 调用放线程池，避免阻塞事件循环
+            await asyncio.to_thread(vector.upsert_memory, entry)
         if items:
             logger.info("记忆抽取：user=%s 新增 %d 条", user_id, len(items))
     except Exception:  # noqa: BLE001  # 后台任务静默失败

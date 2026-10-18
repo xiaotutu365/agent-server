@@ -44,6 +44,31 @@ def test_post_rejects_empty(client):
     assert client.post("/api/memory", json={"content": "   "}).status_code == 400
 
 
+def test_post_survives_vector_failure(client, monkeypatch):
+    """向量写入失败（embedding 不可用等）不 500——记忆本体已入库（bug: memory-add-fails）。"""
+    def boom(entry):
+        raise ConnectionError("embedding 不可用")
+    monkeypatch.setattr(mvector, "upsert_memory", boom)
+    r = client.post("/api/memory", json={"content": "向量写入失败但记忆仍在"})
+    assert r.status_code == 200
+    items = client.get("/api/memory").json()["memories"]
+    assert [m["content"] for m in items] == ["向量写入失败但记忆仍在"]
+
+
+def test_post_offloads_vector_to_thread(client, monkeypatch):
+    """向量调用放线程池执行：工作线程内无 running loop，不阻塞事件循环。"""
+    seen = {}
+    def probe(entry):
+        try:
+            asyncio.get_running_loop()
+            seen["blocking"] = True  # 事件循环线程内同步执行（bug 行为）
+        except RuntimeError:
+            seen["offloaded"] = True  # to_thread 工作线程（期望）
+    monkeypatch.setattr(mvector, "upsert_memory", probe)
+    client.post("/api/memory", json={"content": "offload probe"})
+    assert seen.get("offloaded") and not seen.get("blocking")
+
+
 def test_get_list_with_filters(client):
     client.post("/api/memory", json={"content": "记忆 A"})
     m2 = client.post("/api/memory", json={"content": "记忆 B"}).json()["memory"]
