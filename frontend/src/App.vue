@@ -29,11 +29,11 @@
           <span class="dot"></span>{{ healthy ? '服务正常' : '服务异常' }}
         </span>
 
-        <button class="icon-btn" @click="toggleTheme" :aria-label="theme === 'dark' ? '切换亮色主题' : '切换暗色主题'">
+        <button v-if="!isChatPage" class="icon-btn" @click="toggleTheme" :aria-label="theme === 'dark' ? '切换亮色主题' : '切换暗色主题'">
           <Icon :name="theme === 'dark' ? 'sun' : 'moon'" :size="18" />
         </button>
 
-        <div class="usermenu" v-if="user">
+        <div class="usermenu" v-if="user && !isChatPage">
           <button class="userbtn" @click="menuOpen = !menuOpen" :aria-expanded="menuOpen" aria-haspopup="true">
             <span class="avatar">{{ initial }}</span>
             <span class="uname">{{ user.username }}</span>
@@ -52,7 +52,7 @@
             <Icon name="logout" :size="15" /><span>退出</span>
           </button>
         </div>
-        <router-link v-else-if="!isLoginPage" to="/login" class="navlink">登录</router-link>
+        <router-link v-else-if="!isChatPage && !isLoginPage" to="/login" class="navlink">登录</router-link>
       </div>
     </header>
 
@@ -94,6 +94,8 @@ watch(
 
 const isLoginPage = computed(() => route.path === '/login')
 const showNav = computed(() => !isLoginPage.value && authed.value)
+// 聊天页用户区在左侧栏底部（对齐 EvoFlow 需求图），顶栏不再重复展示
+const isChatPage = computed(() => route.path === '/')
 const isAdmin = computed(() => user.value?.role === 'admin')
 
 const initial = computed(() => (user.value?.username || '?').slice(0, 1).toUpperCase())

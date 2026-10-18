@@ -23,11 +23,28 @@
       </div>
       <div v-if="!threads.length" class="empty">暂无历史会话</div>
     </div>
+    <!-- 左下角用户区（对齐 EvoFlow 需求图）：用户名/角色 + 主题切换 + 退出 -->
+    <div class="user-zone" v-if="user">
+      <span class="u-avatar" aria-hidden="true">{{ (user.username || '?').slice(0, 1).toUpperCase() }}</span>
+      <span class="u-meta">
+        <span class="u-name">{{ user.username }}</span>
+        <span class="u-role">{{ roleLabel }}</span>
+      </span>
+      <button class="u-icon" @click="toggleTheme" :aria-label="theme === 'dark' ? '切换亮色主题' : '切换暗色主题'">
+        <Icon :name="theme === 'dark' ? 'sun' : 'moon'" :size="16" />
+      </button>
+      <button class="u-icon" @click="logout" aria-label="退出登录">
+        <Icon name="logout" :size="16" />
+      </button>
+    </div>
   </aside>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import Icon from './Icon.vue'
+import { getUser, clearAuth, apiFetch } from '../auth'
 
 const props = defineProps({
   threads: { type: Array, default: () => [] },
@@ -80,6 +97,29 @@ function absTime(iso) {
   const d = new Date(iso)
   return isNaN(d) ? '' : d.toLocaleString()
 }
+
+// ── 用户区：身份 + 主题切换 + 退出（与 App.vue 顶栏同款逻辑，聊天页顶栏已隐藏该区）──
+const router = useRouter()
+const user = getUser()
+const theme = ref('light')
+try { theme.value = localStorage.getItem('as-theme') || theme.value } catch (e) {}
+theme.value = document.documentElement.getAttribute('data-theme') || theme.value
+const roleLabel = computed(() => {
+  const r = user?.role
+  return r === 'admin' ? '管理员' : r === 'auditor' ? '审计员' : '普通用户'
+})
+
+function toggleTheme() {
+  theme.value = theme.value === 'dark' ? 'light' : 'dark'
+  document.documentElement.setAttribute('data-theme', theme.value)
+  try { localStorage.setItem('as-theme', theme.value) } catch (e) {}
+}
+
+async function logout() {
+  try { await apiFetch('/api/auth/logout', { method: 'POST' }) } catch (e) { /* 服务端登出失败不影响本地清态 */ }
+  clearAuth()
+  router.push('/login')
+}
 </script>
 
 <style scoped>
@@ -128,6 +168,27 @@ function absTime(iso) {
 .item:focus-within .del { visibility: visible; }
 .del:hover { color: var(--destructive); background: color-mix(in srgb, var(--destructive) 12%, transparent); }
 .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 20px 0; }
+
+/* 左下角用户区 */
+.user-zone {
+  flex: none; display: flex; align-items: center; gap: 8px;
+  border-top: 1px solid var(--border); padding-top: 10px;
+}
+.u-avatar {
+  flex: none; width: 26px; height: 26px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--accent); color: var(--on-primary); font-size: 12px; font-weight: 700;
+}
+.u-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.u-name { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.u-role { font-size: 10px; color: var(--muted); }
+.u-icon {
+  flex: none; border: none; background: transparent; color: var(--muted);
+  cursor: pointer; padding: 5px; border-radius: 7px; line-height: 1;
+  display: inline-flex; align-items: center;
+  transition: background-color .15s ease, color .15s ease;
+}
+.u-icon:hover { background: var(--panel-hover); color: var(--text); }
 
 @media (max-width: 760px) {
   .sidebar { width: 100%; max-height: 180px; border-right: 0; border-bottom: 1px solid var(--border); }

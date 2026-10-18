@@ -109,3 +109,4 @@ Content-Type: multipart/form-data，字段 file
 
 - 需求图（docs/requirements/b35d20344be5cbe62cafffbd445056dd.jpg）对齐补齐：会话条目右侧显示相对时间（刚刚/Xm/Xh/Xd/超一周显示日期，hover 显示绝对时间），数据源为 /api/threads 既有 updated_at（checkpoint created_at）。纯前端，ThreadList.vue 单文件。
 - 需求图对齐补齐②：会话列表按 最近活动 分组显示小节标题（今天/昨天/7 天内/更早），组内倒序；纯前端 ThreadList.vue。
+- 需求图对齐补齐③：聊天页左侧栏底部新增用户区（头像/用户名/角色 + 主题切换 + 退出）；聊天页顶栏隐藏主题按钮与用户菜单避免重复，其他页面顶栏保持原样。涉及 ThreadList.vue 与 App.vue。
