@@ -162,7 +162,7 @@ const pendingInterrupt = ref(null)
 
 // 顶部标题栏：当前会话标题
 const currentThreadTitle = computed(() => {
-  const t = threads.value.find((x) => x.id === threadId.value)
+  const t = threads.value.find((x) => x.thread_id === threadId.value)
   return (t && t.title) || '新对话'
 })
 
