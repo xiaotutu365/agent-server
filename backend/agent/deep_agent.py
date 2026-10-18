@@ -9,6 +9,7 @@ logger = logging.getLogger(__name__)
 from deepagents import create_deep_agent
 from deepagents.backends import FilesystemBackend
 from langchain.chat_models import init_chat_model
+from langchain_core.tools import tool
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.store.sqlite.aio import AsyncSqliteStore
 
@@ -97,6 +98,24 @@ async def _resolve_llm_config(config: dict, model_id: str | None = None):
     return model_name, api_key, base_url, llm_params
 
 
+@tool
+def write_todos(todos: list[dict]) -> str:
+    """写入或更新当前任务清单（任务规划）。每次调用传入完整清单，每项为
+    {"content": str, "status": "pending" | "in_progress" | "completed"}。
+    开始或完成某项任务时，重新提交整个清单以更新各项状态。"""
+    if not isinstance(todos, list):
+        return "todos 必须是列表"
+    return f"任务清单已更新，共 {len(todos)} 项。"
+
+
+WRITE_TODOS = write_todos  # 框架级计划工具：deepagents 0.7.x 不内置，main.py 依此产出 plan SSE 事件
+
+
+def _assemble_tools(config: dict) -> list:
+    """实际装配给 agent 的工具：按配置开关筛选 + 框架级计划工具（不随开关关闭）。"""
+    return resolve_tools(config) + [WRITE_TODOS]
+
+
 async def build_agent(config: dict | None = None, system_prompt: str | None = None,
                       model_id: str | None = None):
     """创建 deepagent（编译后的 LangGraph），带 SQLite 持久化 checkpointer。
@@ -161,7 +180,7 @@ async def build_agent(config: dict | None = None, system_prompt: str | None = No
     await store.setup()
 
     # 工具：根据配置筛选（tools_enabled + 记忆/知识库总开关）
-    tools = resolve_tools(config)
+    tools = _assemble_tools(config)
 
     # MCP：并入外部服务器工具（配置在 mcp_servers；加载失败不阻断主流程）
     mcp_cfg = config.get("mcp_servers") or []

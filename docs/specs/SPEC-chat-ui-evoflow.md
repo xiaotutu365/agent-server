@@ -111,3 +111,4 @@ Content-Type: multipart/form-data，字段 file
 - 需求图对齐补齐②：会话列表按 最近活动 分组显示小节标题（今天/昨天/7 天内/更早），组内倒序；纯前端 ThreadList.vue。
 - 需求图对齐补齐③：聊天页左侧栏底部新增用户区（头像/用户名/角色 + 主题切换 + 退出）；聊天页顶栏隐藏主题按钮与用户菜单避免重复，其他页面顶栏保持原样。涉及 ThreadList.vue 与 App.vue。
 - 任务清单常驻展示（经评审确认）：顶栏 Running 徽标旁「任务 n/m」pill 入口 + 右侧浮动抽屉（复用 PlanPanel，浮层定位不占消息流宽度）；plan 事件自动弹出、用户关闭后同轮不重复弹开；Esc/点击外部可收起；≤760px 抽屉全宽自适应。仅 ChatView.vue。
+- 冒烟补缺（2026-10-18）：deepagents 0.7.25 已不内置 write_todos（PlanningMiddleware 移除），系统提示词却承诺该工具，导致 plan 事件链路从未可用。补齐：deep_agent.py 自备 WRITE_TODOS 工具并经 _assemble_tools 恒定装配（不随 tools_enabled 关闭），3 个新测试钉住；SSE 实测 LLM 真实调用后产出 plan 事件。
