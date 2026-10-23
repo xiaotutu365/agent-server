@@ -18,6 +18,10 @@ python-docx>=1.1
 python-multipart>=0.0.20
 pytest>=8
 
+# PDF OCR 兜底提取（ADR-003：本地 RapidOCR + PyMuPDF 渲染）
+rapidocr-onnxruntime>=1.4
+pymupdf>=1.24
+
 # MCP 客户端：消费外部 MCP 服务器（stdio / SSE / Streamable HTTP）提供的工具
 langchain-mcp-adapters>=0.1.0
 mcp>=1.0.0

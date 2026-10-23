@@ -1,7 +1,7 @@
-"""重新入库：上传留档 + POST /api/kb/{kb_id}/documents/reingest 契约测试。
+"""重新入库：上传留档 + POST /api/kb/{kb_id}/documents/reingest 契约测试（202 异步，SPEC-kb-ocr-ingest C2）。
 
 留档：上传成功后原文件保存到 data/uploads/{kb_id}/{source}，供重新入库取用。
-重新入库：删除旧片段 → 按当前分片策略从留档重建。
+重新入库：建任务 → worker 提取成功后主进程删旧建新（失败旧片段保留）。
 """
 
 import os
@@ -11,10 +11,16 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import kb.ingest as ingest
+import kb.tasks as tasks
 from kb.api import router
 
 KB = "t_reingest"
 CONTENT = "# 退货政策\n七天无理由退货。\n\n# 保修条款\n整机保修一年。"
+
+
+@pytest.fixture(autouse=True)
+def inline_runner(monkeypatch):
+    monkeypatch.setattr(tasks, "RUNNER", "inline")
 
 
 @pytest.fixture()
@@ -25,16 +31,29 @@ def client(tmp_path, monkeypatch):
     return TestClient(app)
 
 
-def _upload(client):
-    return client.post(
+def _upload(client, name="policy.md", content=CONTENT):
+    r = client.post(
         f"/api/kb/{KB}/documents",
-        files={"file": ("policy.md", CONTENT, "text/markdown")},
+        files={"file": (name, content, "text/markdown")},
     )
+    assert r.status_code == 202
+    t = client.get(f"/api/kb/ingest-tasks/{r.json()['task_id']}").json()
+    assert t["status"] == "done", f"任务应完成：{t}"
+    return t
+
+
+def _reingest(client, file):
+    r = client.post(f"/api/kb/{KB}/documents/reingest", params={"file": file})
+    assert r.status_code == 202
+    body = r.json()
+    assert body["file"] == file and body["kb_id"] == KB
+    t = client.get(f"/api/kb/ingest-tasks/{body['task_id']}").json()
+    assert t["status"] == "done", f"任务应完成：{t}"
+    return t
 
 
 def test_upload_archives_original(client):
-    r = _upload(client)
-    assert r.status_code == 200
+    _upload(client)
     archived = os.path.join(ingest.UPLOADS_ROOT, KB, "policy.md")
     assert os.path.isfile(archived)
     with open(archived, encoding="utf-8") as f:
@@ -42,13 +61,8 @@ def test_upload_archives_original(client):
 
 
 def test_reingest_rebuilds_same_chunks(client):
-    assert _upload(client).status_code == 200
-    initial = _upload(client).json()["chunks"]
-
-    r = client.post(f"/api/kb/{KB}/documents/reingest", params={"file": "policy.md"})
-    assert r.status_code == 200
-    data = r.json()
-    assert data["file"] == "policy.md"
+    initial = _upload(client)["chunks"]
+    data = _reingest(client, "policy.md")
     assert data["chunks"] == initial
     # 重建后片段可检索到，来源不变
     from kb import retrieval
@@ -59,14 +73,13 @@ def test_reingest_rebuilds_same_chunks(client):
 
 def test_reingest_replaces_old_chunks(client):
     """连续重建不累积：片段数与首次入库一致（删旧建新，point id 确定性保证同 id 覆盖）。"""
-    initial = _upload(client).json()["chunks"]
-    r1 = client.post(f"/api/kb/{KB}/documents/reingest", params={"file": "policy.md"})
-    r2 = client.post(f"/api/kb/{KB}/documents/reingest", params={"file": "policy.md"})
-    assert r1.json()["chunks"] == r2.json()["chunks"] == initial
+    initial = _upload(client)["chunks"]
+    assert _reingest(client, "policy.md")["chunks"] == initial
+    assert _reingest(client, "policy.md")["chunks"] == initial
 
 
 def test_reingest_no_archive_404(client):
-    assert _upload(client).status_code == 200
+    _upload(client)
     r = client.post(f"/api/kb/{KB}/documents/reingest", params={"file": "ghost.md"})
     assert r.status_code == 404
     assert "留档" in r.json()["detail"]

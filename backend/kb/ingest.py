@@ -14,11 +14,15 @@ from qdrant_client import models
 import kb.config as cfg
 import kb.embed as embed
 import kb.settings as settings
-from kb import store
+from kb import ocr, store
+
+# 闸门语义已迁至 kb/ocr.py（OCR 兜底后整份仍无字才拒绝）；此处 re-export 供 kb/tasks.py 与测试引用
+from kb.ocr import LowQualityExtraction  # noqa: F401
 
 CHUNK_SIZE = 800
 CHUNK_OVERLAP = 100
 SUPPORTED_EXT = (".txt", ".md", ".pdf", ".docx", ".csv", ".jsonl")
+
 
 # 原始文件留档根目录（测试 monkeypatch 隔离）；目录结构 {UPLOADS_ROOT}/{kb_id}/{source}
 UPLOADS_ROOT = "data/uploads"
@@ -45,25 +49,12 @@ def archive_file(kb_id: str, source: str, tmp_path: str) -> str:
         return ""
 
 
-def reingest_document(kb_id: str, source: str) -> int:
-    """按当前分片策略重建单个文档：删除旧片段 → 从留档重新切分入库。
-
-    留档不存在抛 FileNotFoundError（上层转 404，提示需删除重传一次建立留档）。
-    """
-    dest = archive_path(kb_id, source or "")
-    if not dest or not os.path.isfile(dest):
-        raise FileNotFoundError(source)
-    store.delete_document(kb_id, source)
-    return ingest_file(kb_id, dest, source=source)
-
-
 def _load_text(path: str) -> str:
+    """读取文本；PDF 走按页混合提取（文本层 + OCR 兜底），整份无字抛 LowQualityExtraction。"""
     ext = os.path.splitext(path)[1].lower()
     if ext == ".pdf":
-        from pypdf import PdfReader
-
-        reader = PdfReader(path)
-        return "\n".join((p.extract_text() or "") for p in reader.pages)
+        text, _stats = ocr.extract_pdf_text(path)
+        return text
     if ext == ".docx":
         import docx
 
@@ -126,14 +117,22 @@ def _split(text: str) -> list:
     return splitter.split_text(text)
 
 
-def ingest_file(kb_id: str, path: str, source: str | None = None) -> int:
-    """读取单个文件，切分去重后入库，返回新增片段数。
+def prepare_points(kb_id: str, path: str, source: str | None = None,
+                   progress_cb=None) -> tuple:
+    """提取 → 切分去重 → 双向量化，返回 (points, stats)；**不触碰向量库**。
 
-    source：payload 里的来源文件名（列表/引用展示用）。上传走临时文件，
-    必须传用户上传的原始文件名；缺省回退为临时路径的 basename。
+    worker 侧专用（kb/tasks.py 进程边界：写入留主进程）。
+    source：payload 里的来源文件名；缺省回退为路径 basename。
+    progress_cb(done_pages, total_pages)：仅 PDF 逐页回调；非 PDF 不回调。
+    stats = {pages, text_pages, ocr_pages, empty_pages}；非 PDF 恒全 0。
     """
     display_name = source or os.path.basename(path)
-    text = _load_text(path)
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".pdf":
+        text, stats = ocr.extract_pdf_text(path, progress_cb)
+    else:
+        text = _load_text(path)
+        stats = {"pages": 0, "text_pages": 0, "ocr_pages": 0, "empty_pages": 0}
     chunks = _split(text)
 
     # 按内容 hash 去重（同一文件内重复片段只保留首次）
@@ -145,7 +144,7 @@ def ingest_file(kb_id: str, path: str, source: str | None = None) -> int:
 
     unique = list(seen.values())
     if not unique:
-        return 0
+        return [], stats
 
     texts = [u[0] for u in unique]
     dense, sparse = embed.embed_documents(texts)
@@ -166,6 +165,18 @@ def ingest_file(kb_id: str, path: str, source: str | None = None) -> int:
                 "chunk_idx": idx,
             },
         ))
+    return points, stats
+
+
+def ingest_file(kb_id: str, path: str, source: str | None = None) -> int:
+    """读取单个文件，切分去重后入库，返回新增片段数。
+
+    source：payload 里的来源文件名（列表/引用展示用）。上传走临时文件，
+    必须传用户上传的原始文件名；缺省回退为临时路径的 basename。
+    """
+    points, _stats = prepare_points(kb_id, path, source=source)
+    if not points:
+        return 0
     store.upsert_points(kb_id, points)
     return len(points)
 

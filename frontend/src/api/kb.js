@@ -25,6 +25,7 @@ export async function deleteKb(kbId) {
   return jsonFetch(`/api/kb/${encodeURIComponent(kbId)}`, { method: 'DELETE' })
 }
 
+/** 上传文档：202 异步契约，返回 {task_id, kb_id, file}，入库进度经 getIngestTask 轮询（SPEC-kb-ocr-ingest C2）。 */
 export async function uploadDoc(kbId, file) {
   const fd = new FormData()
   fd.append('file', file)
@@ -32,6 +33,16 @@ export async function uploadDoc(kbId, file) {
     method: 'POST',
     body: fd
   })
+}
+
+/** 查入库任务（轮询用）：全字段含 status/total_pages/done_pages/chunks/error/stats。 */
+export async function getIngestTask(taskId) {
+  return jsonFetch(`/api/kb/ingest-tasks/${encodeURIComponent(taskId)}`)
+}
+
+/** 进行中的入库任务列表（进入页面时恢复进度展示）。 */
+export async function listActiveIngestTasks(kbId) {
+  return jsonFetch(`/api/kb/${encodeURIComponent(kbId)}/ingest-tasks?active=true`)
 }
 
 export async function listDocuments(kbId) {
@@ -92,7 +103,13 @@ export async function getChunk(kbId, source, chunkIdx) {
   return jsonFetch(`/api/kb/${encodeURIComponent(kbId)}/chunk?${params}`)
 }
 
-/** 重新入库：删除旧片段并按当前分片策略从留档原文件重建。 */
+/** 分片预览：列出某文档全部片段（按 chunk_idx 升序）。 */
+export async function listChunks(kbId, source) {
+  const params = new URLSearchParams({ source })
+  return jsonFetch(`/api/kb/${encodeURIComponent(kbId)}/chunks?${params}`)
+}
+
+/** 重新入库：202 异步契约，返回 {task_id, kb_id, file}；worker 成功后才删旧建新。 */
 export async function reingestDocument(kbId, file) {
   return jsonFetch(
     `/api/kb/${encodeURIComponent(kbId)}/documents/reingest?file=${encodeURIComponent(file)}`,

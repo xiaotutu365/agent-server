@@ -13,6 +13,7 @@
 | mcp | —（沿用现状） | MCP 服务器接入、挂载、权限闸 | → chat-agent |
 | hitl | [SPEC-hitl](SPEC-hitl.md) | 人机交互中断/恢复 | → chat-agent |
 | knowledge-base | [SPEC-knowledge-base](SPEC-knowledge-base.md) | 文档入库、混合检索、Agent 挂载、引用来源 | → chat-agent（kb 工具） |
+| kb-ocr-ingest | [SPEC-kb-ocr-ingest](SPEC-kb-ocr-ingest.md) | 图片型 PDF 按页 OCR、入库异步任务（变更 knowledge-base 上传契约） | → knowledge-base |
 
 ## 依赖方向（谁依赖谁）
 

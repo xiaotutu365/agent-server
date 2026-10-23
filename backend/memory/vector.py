@@ -8,7 +8,6 @@ from qdrant_client import models
 
 import kb.config as cfg
 import kb.embed as embed
-import kb.settings as settings
 from kb import store
 
 COLLECTION = "memories"
@@ -27,7 +26,7 @@ def ensure_collection():
         collection_name=COLLECTION,
         vectors_config={
             cfg.DENSE_NAME: models.VectorParams(
-                size=settings.get_settings()["embedding_dim"],
+                size=embed.effective_dim(),
                 distance=models.Distance.COSINE,
             )
         },

@@ -14,7 +14,7 @@
       </div>
 
       <nav class="mainnav" v-if="showNav" aria-label="主导航">
-        <router-link v-for="n in nav" :key="n.to" :to="n.to" class="navlink">
+        <router-link v-for="n in navVisible" :key="n.to" :to="n.to" class="navlink">
           <Icon :name="n.icon" :size="18" />
           <span>{{ n.label }}</span>
         </router-link>
@@ -78,9 +78,11 @@ const theme = ref('light')
 
 const nav = [
   { to: '/', label: '对话', icon: 'chat' },
-  { to: '/langgraph-lab', label: '实验室', icon: 'lab' },
-  { to: '/eda', label: '数据分析', icon: 'eda' },
+  { to: '/langgraph-lab', label: '实验室', icon: 'lab', adminOnly: true },
+  { to: '/eda', label: '数据分析', icon: 'eda', adminOnly: true },
 ]
+// 非 admin（普通用户/审计员）只保留「对话」
+const navVisible = computed(() => nav.filter((n) => !n.adminOnly || isAdmin.value))
 
 // 路由变化时刷新登录态（登录/登出后顶栏立即更新）
 watch(

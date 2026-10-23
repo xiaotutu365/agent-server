@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 import kb.config as cfg
-from kb import store, ingest, retrieval
+from kb import store, ingest, retrieval, tasks
 import kb.embed as embed
 import kb.settings as settings
 from kb import eval as kb_eval
@@ -66,6 +66,24 @@ def update_kb_settings(patch: dict):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+# ---------- 入库任务查询（SPEC-kb-ocr-ingest C2；注册在 /{kb_id} 路由之前） ----------
+
+@router.get("/ingest-tasks/{task_id}")
+def get_ingest_task(task_id: str):
+    task = tasks.get_task(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="入库任务不存在。")
+    return task
+
+
+@router.get("/{kb_id}/ingest-tasks")
+def list_ingest_tasks(kb_id: str, active: bool = True):
+    _kb_guard(kb_id)
+    if active:
+        return {"tasks": tasks.list_active(kb_id)}
+    return {"tasks": tasks.list_tasks(kb_id)}
+
+
 @router.delete("/{kb_id}")
 def delete_kb(kb_id: str):
     try:
@@ -99,8 +117,9 @@ def delete_document(kb_id: str, file: str):
     return r
 
 
-@router.post("/{kb_id}/documents")
+@router.post("/{kb_id}/documents", status_code=202)
 async def upload_documents(kb_id: str, file: UploadFile = File(...)):
+    """上传 → 留档 → 建入库任务，立即返回 202（OCR/向量化在后台任务执行）。"""
     try:
         cfg.validate_kb_id(kb_id)
     except ValueError as e:
@@ -114,38 +133,39 @@ async def upload_documents(kb_id: str, file: UploadFile = File(...)):
 
     suffix = os.path.splitext(file.filename or "")[1] or ".txt"
     fd, tmppath = tempfile.mkstemp(suffix=suffix)
+    archived = ""
     try:
         with os.fdopen(fd, "wb") as f:
             f.write(data)
-        store.create_kb(kb_id)
-        chunks = ingest.ingest_file(kb_id, tmppath, source=file.filename)
-        ingest.archive_file(kb_id, file.filename or "", tmppath)  # 原文件留档，供重新入库
-    except embed.EmbeddingUnavailable as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        store.create_kb(kb_id)  # kb 不存在时隐式建库（沿用现状）
+        archived = ingest.archive_file(kb_id, file.filename or "", tmppath)
+        # worker 异步读取，落点优先用留档（临时文件才可安全删除）；留档失败退回临时文件并保留
+        task_id = tasks.start_ingest_task(
+            kb_id, file.filename or "", "upload", archived or tmppath
+        )
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"入库失败: {exc}")
+        raise HTTPException(status_code=500, detail=f"入库任务创建失败: {exc}")
     finally:
-        if os.path.exists(tmppath):
+        if archived and os.path.exists(tmppath):
             os.remove(tmppath)
-    return {"kb_id": kb_id, "file": file.filename, "chunks": chunks}
+    return {"task_id": task_id, "kb_id": kb_id, "file": file.filename}
 
 
-@router.post("/{kb_id}/documents/reingest")
+@router.post("/{kb_id}/documents/reingest", status_code=202)
 def reingest_document(kb_id: str, file: str):
-    """按当前分片策略重建单个文档：删旧片段 → 从留档原文件重新切分入库。"""
+    """按当前分片策略重建单个文档：建任务立即返回 202，删旧建新在 worker 成功后执行。"""
     _kb_guard(kb_id)
-    try:
-        chunks = ingest.reingest_document(kb_id, file)
-    except FileNotFoundError:
+    dest = ingest.archive_path(kb_id, file or "")
+    if not dest or not os.path.isfile(dest):
         raise HTTPException(
             status_code=404,
             detail="该文档没有留档原文件（仅支持留档后上传的文档），请删除后重新上传一次以建立留档。",
         )
-    except embed.EmbeddingUnavailable as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    try:
+        task_id = tasks.start_ingest_task(kb_id, file, "reingest", dest)
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=500, detail=f"重新入库失败: {exc}")
-    return {"kb_id": kb_id, "file": file, "chunks": chunks}
+        raise HTTPException(status_code=500, detail=f"重新入库任务创建失败: {exc}")
+    return {"task_id": task_id, "kb_id": kb_id, "file": file}
 
 
 @router.get("/{kb_id}/chunk")
@@ -156,6 +176,16 @@ def get_chunk(kb_id: str, source: str, chunk_idx: int = 0):
     if chunk is None:
         raise HTTPException(status_code=404, detail="知识库或片段不存在。")
     return chunk
+
+
+@router.get("/{kb_id}/chunks")
+def list_chunks(kb_id: str, source: str):
+    """分片预览：按 chunk_idx 升序列出某文档全部片段原文。"""
+    _kb_guard(kb_id)
+    chunks = store.list_chunks(kb_id, source)
+    if chunks is None:
+        raise HTTPException(status_code=404, detail="知识库不存在。")
+    return {"kb_id": kb_id, "source": source, "total": len(chunks), "chunks": chunks}
 
 
 @router.post("/{kb_id}/search")

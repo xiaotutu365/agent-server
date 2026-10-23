@@ -30,6 +30,33 @@ def isolated_settings(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def isolated_model_store(tmp_path, monkeypatch):
+    """屏蔽真实「模型配置」库：测试不依赖 data/ 下 model_configs 状态。
+
+    回归背景（bugs/kb-tests-model-store-leak.md）：用户配置 dim=1024 嵌入模型后，
+    embed.effective_dim() 读到真实条目，与 fake_embed 的 cfg.EMBEDDING_DIM(1536)
+    冲突，kb 测试建集合维度不一致。
+    注意：只隔离 DB_PATH 而非 get_default_sync 本身——
+    test_kb_embed_sparse 等测试要在自建 DB 上验证 model_store 读取路径。
+    """
+    from agent import model_store
+
+    monkeypatch.setattr(model_store, "DB_PATH", str(tmp_path / "isolated_models.db"))
+
+
+@pytest.fixture(autouse=True)
+def stub_ocr(monkeypatch):
+    """单测不跑真 OCR：图片页一律返回空块（扫描件 → OCR 兜底后仍无字 → 被闸门拒绝）。
+
+    回归背景：kb/ocr.py 的渲染/识别接缝依赖 pymupdf/rapidocr，单测不得依赖真实引擎。
+    慢集成测试（@pytest.mark.ocr）用 monkeypatch.setattr(ocr, "_ocr_page", ocr.ocr_page) 还原真实现。
+    """
+    from kb import ocr
+
+    monkeypatch.setattr(ocr, "_ocr_page", lambda path, idx: [])
+
+
+@pytest.fixture(autouse=True)
 def fake_embed(monkeypatch):
     def fake_query(text):
         return [0.1] * cfg.EMBEDDING_DIM, models.SparseVector(

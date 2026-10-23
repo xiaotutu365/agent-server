@@ -71,3 +71,45 @@ def test_get_chunk_missing_kb_404(client):
 def test_get_chunk_invalid_kb_id_400(client):
     r = client.get("/api/kb/bad%20id/chunk", params={"source": "a.md", "chunk_idx": 0})
     assert r.status_code == 400
+
+
+# ---------- 分片预览：GET /api/kb/{kb_id}/chunks?source= ----------
+
+def test_list_chunks_sorted_by_idx(client, kb):
+    """乱序写入的两个片段，接口必须按 chunk_idx 升序返回。"""
+    import uuid
+
+    dim = kb_settings.get_settings()["embedding_dim"]
+    vec = [0.1] * dim
+
+    def _p(pid, source, idx, text):
+        return models.PointStruct(
+            id=str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{kb}-{pid}")),
+            vector={cfg.DENSE_NAME: vec, cfg.SPARSE_NAME: models.SparseVector(indices=[1, 2], values=[0.5, 0.5])},
+            payload={"text": text, "source": source, "kb_id": kb, "chunk_idx": idx},
+        )
+
+    store.upsert_points(kb, [_p("e5", "e.md", 5, "戊段内容"), _p("e2", "e.md", 2, "丙段内容")])
+    r = client.get(f"/api/kb/{kb}/chunks", params={"source": "e.md"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 2
+    assert [c["chunk_idx"] for c in data["chunks"]] == [2, 5]
+    assert data["chunks"][0]["text"] == "丙段内容"
+    assert data["chunks"][0]["size_chars"] == 4
+
+
+def test_list_chunks_empty_source(client, kb):
+    r = client.get(f"/api/kb/{kb}/chunks", params={"source": "ghost.md"})
+    assert r.status_code == 200
+    assert r.json()["total"] == 0
+
+
+def test_list_chunks_missing_kb_404(client):
+    r = client.get("/api/kb/no_such_kb/chunks", params={"source": "a.md"})
+    assert r.status_code == 404
+
+
+def test_list_chunks_invalid_kb_id_400(client):
+    r = client.get("/api/kb/bad%20id/chunks", params={"source": "a.md"})
+    assert r.status_code == 400

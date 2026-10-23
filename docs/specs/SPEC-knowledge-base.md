@@ -2,7 +2,8 @@
 
 > 意图来源：[docs/intent/knowledge-base.md](../intent/knowledge-base.md)（interview-me，2026-10-16 已确认）
 > 追加意图：[docs/intent/kb-chunking-strategy.md](../intent/kb-chunking-strategy.md)（分片策略，2026-10-17 已确认）、[docs/intent/kb-eval.md](../intent/kb-eval.md)（检索评测，2026-10-17 已确认）、[docs/intent/kb-reingest-and-fallback.md](../intent/kb-reingest-and-fallback.md)（重新入库与兜底，2026-10-17 已确认）、[docs/intent/kb-retrieval-tuning.md](../intent/kb-retrieval-tuning.md)（检索调优，2026-10-17 已确认）
-> 选型记录：[docs/adr/ADR-001-langchain-text-splitters.md](../adr/ADR-001-langchain-text-splitters.md)、[docs/adr/ADR-002-ragas-eval.md](../adr/ADR-002-ragas-eval.md)
+> 选型记录：[docs/adr/ADR-001-langchain-text-splitters.md](../adr/ADR-001-langchain-text-splitters.md)、[docs/adr/ADR-002-ragas-eval.md](../adr/ADR-002-ragas-eval.md)、[docs/adr/ADR-003-local-ocr-pipeline.md](../adr/ADR-003-local-ocr-pipeline.md)
+> 契约变更提示：上传/重入库接口由 [SPEC-kb-ocr-ingest](SPEC-kb-ocr-ingest.md) 改为 202 异步任务契约（L2 表中同步响应形态已废弃）
 
 ## 背景
 

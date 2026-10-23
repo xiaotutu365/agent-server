@@ -4,7 +4,7 @@
   - type:    llm | embedding | rerank
   - name:    展示名（如 default-llm）
   - base_url / api_key / model: 调用所需
-  - dim:     向量维度（嵌入模型参考用）
+  - dim:     向量维度（嵌入模型生效维度，kb.embed.effective_dim 优先取此值）
   - is_default: 每类型唯一默认
   - extra:   类型相关扩展参数（JSON）
 

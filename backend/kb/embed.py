@@ -24,6 +24,21 @@ def reset_clients():
     _sparse = None
 
 
+def effective_dim() -> int:
+    """嵌入向量生效维度：优先「模型配置」默认嵌入条目的 dim（单一事实来源），
+    无条目或 dim<=0 时回退 KB 配置 embedding_dim。集合建 size 与调用共用本函数。"""
+    dim = int(settings.get_settings()["embedding_dim"])
+    try:
+        from agent.model_store import get_default_sync
+
+        emb = get_default_sync("embedding")
+        if emb and int(emb.get("dim") or 0) > 0:
+            return int(emb["dim"])
+    except Exception:  # noqa: BLE001
+        pass
+    return dim
+
+
 def _ensure_dense():
     global _dense
     if _dense is None:
@@ -52,10 +67,10 @@ def _ensure_dense():
             )
         from langchain_openai import OpenAIEmbeddings
 
-        # dimensions 对齐集合 schema（如智谱 embedding-3 默认 2048 维，需显式指定）
+        # dimensions 与集合 schema 同源（effective_dim），如智谱 embedding-3 需显式指定
         _dense = OpenAIEmbeddings(
             model=model, api_key=api_key, base_url=base_url,
-            dimensions=s["embedding_dim"],
+            dimensions=effective_dim(),
         )
     return _dense
 

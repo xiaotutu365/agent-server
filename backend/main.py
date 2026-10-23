@@ -73,6 +73,10 @@ async def lifespan(app: FastAPI):
     await seed_admin()
     await init_memories_table()
     await init_flow_tables()
+    # 入库任务启动清理：上次进程残留的 queued/running → failed（spec kb-ocr-ingest C2，不做断点续跑）
+    from kb.tasks import cleanup_interrupted
+
+    cleanup_interrupted()
     cfg = await load_default_config()
     AGENT = await build_agent(cfg)
     yield
@@ -705,6 +709,17 @@ async def admin_list_models(type: str | None = None, _: dict = Depends(require_a
     return {"models": await list_models(type)}
 
 
+def _reset_embed_clients():
+    """嵌入客户端实例有缓存（kb.embed._dense/_sparse），模型配置变更后必须重置，
+    否则新 base_url/model/api_key/dim 要到进程重启才生效。"""
+    try:
+        import kb.embed
+
+        kb.embed.reset_clients()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @app.post("/api/admin/models")
 async def admin_create_model(body: dict, _: dict = Depends(require_admin)):
     """新增模型配置（大模型/嵌入/重排）。"""
@@ -712,6 +727,7 @@ async def admin_create_model(body: dict, _: dict = Depends(require_admin)):
         m = await create_model(body)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    _reset_embed_clients()
     return {"model": m}
 
 
@@ -726,6 +742,7 @@ async def admin_update_model(model_id: str, body: dict, _: dict = Depends(requir
         raise HTTPException(status_code=404, detail="模型不存在")
     # 模型配置变更必须失效 agent 缓存（含会话级 ::model: 键），否则旧配置实例一直被复用
     AGENT_CACHE.clear()
+    _reset_embed_clients()
     return {"model": m}
 
 
@@ -734,6 +751,7 @@ async def admin_delete_model(model_id: str, _: dict = Depends(require_admin)):
     """删除模型配置。"""
     result = await delete_model(model_id)
     AGENT_CACHE.clear()  # 同上：删除后清理按模型缓存的实例，会话覆盖在使用时自动回退默认
+    _reset_embed_clients()
     return result
 
 

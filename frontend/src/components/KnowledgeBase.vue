@@ -188,6 +188,21 @@
       </div>
     </header>
 
+    <!-- 入库任务（202 异步契约）：排队中 / 处理中 x/y 页 / 完成 n 片段 / 失败：原因 -->
+    <section v-if="ingestTasks.length" class="ingest-panel" aria-label="入库任务">
+      <div v-for="t in ingestTasks" :key="t.task_id" class="ingest-row" role="status">
+        <span class="ingest-file" :title="t.source">{{ t.source }}</span>
+        <span :class="t.status === 'failed' ? 'ingest-err' : t.status === 'done' ? 'ingest-ok' : 'muted'">
+          {{ taskText(t) }}
+        </span>
+        <button
+          v-if="t.status === 'done' || t.status === 'failed'"
+          class="link"
+          @click="dismissTask(t.task_id)"
+        >隐藏</button>
+      </div>
+    </section>
+
     <section class="doc-panel" aria-label="已入库文档">
       <h3 class="doc-title">已入库文档（{{ docs.length }}）</h3>
       <table v-if="docs.length" class="tbl">
@@ -200,8 +215,9 @@
             <td class="muted">{{ d.chunks }}</td>
             <td class="muted">{{ d.size_chars }}</td>
             <td class="op">
-              <button class="link" :disabled="reingesting === d.file" @click="doReingest(d.file)" title="删除旧片段，按当前分片策略从留档原文件重建">
-                {{ reingesting === d.file ? '重建中…' : '重新入库' }}
+              <button class="link" @click="openPreview(d.file)">预览</button>
+              <button class="link" :disabled="busyReingest(d.file)" @click="doReingest(d.file)" title="删除旧片段，按当前分片策略从留档原文件重建">
+                {{ busyReingest(d.file) ? '重建中…' : '重新入库' }}
               </button>
               <button class="link link-danger" :disabled="deletingDoc === d.file" @click="doDeleteDoc(d.file)">
                 {{ deletingDoc === d.file ? '删除中…' : '删除' }}
@@ -238,12 +254,32 @@
       <p v-else-if="searched && !results.length" class="hint" role="status">未找到相关内容。</p>
     </div>
 
+    <!-- 分片预览弹窗：按 chunk_idx 顺序展示该文档全部片段原文 -->
+    <div v-if="previewDoc" class="modal-mask" @click.self="closePreview">
+      <div class="modal" role="dialog" aria-modal="true" :aria-label="`分片预览：${previewDoc}`">
+        <div class="modal-head">
+          <h3>分片预览：{{ previewDoc }}（{{ previewChunks.length }} 个片段）</h3>
+          <button class="link" @click="closePreview">关闭</button>
+        </div>
+        <div class="modal-body">
+          <p v-if="previewLoading" class="empty" role="status">加载中…</p>
+          <template v-else>
+            <div v-for="c in previewChunks" :key="c.chunk_idx" class="chunk-item">
+              <div class="chunk-head">片段 #{{ c.chunk_idx }} · {{ c.size_chars }} 字符</div>
+              <pre class="chunk-text">{{ c.text }}</pre>
+            </div>
+            <p v-if="!previewChunks.length" class="empty">该文档没有片段。</p>
+          </template>
+        </div>
+      </div>
+    </div>
+
   </div>
 </template>
 
 <script setup>
-import { nextTick, onMounted, ref, reactive, computed, watch } from 'vue'
-import { listKbs, createKb, deleteKb, uploadDoc, searchKb, getKbSettings, saveKbSettings, listDocuments, deleteDocument, reingestDocument } from '../api/kb'
+import { nextTick, onBeforeUnmount, onMounted, ref, reactive, computed, watch } from 'vue'
+import { listKbs, createKb, deleteKb, uploadDoc, searchKb, getKbSettings, saveKbSettings, listDocuments, deleteDocument, reingestDocument, listChunks, getIngestTask, listActiveIngestTasks } from '../api/kb'
 
 const kbs = ref([])
 const current = ref('')
@@ -298,9 +334,80 @@ function select(id) {
   searched.value = false
   error.value = ''
   msg.value = ''
-  if (id) loadDocs(id)
+  ingestTasks.value = []
+  stopPolling()
+  if (id) { loadDocs(id); restoreActiveTasks(id) }
   else docs.value = []
 }
+
+// ---------- 入库任务（上传/重新入库异步化：202 + 轮询） ----------
+const ingestTasks = ref([])
+let pollTimer = null
+const POLL_MS = 2000
+
+function isActive(t) { return t.status === 'queued' || t.status === 'running' }
+
+function busyReingest(file) {
+  return ingestTasks.value.some((t) => t.source === file && isActive(t))
+}
+
+function taskText(t) {
+  if (t.status === 'queued') return '排队中'
+  if (t.status === 'running') {
+    return t.total_pages ? `处理中 ${t.done_pages}/${t.total_pages} 页` : '处理中…'
+  }
+  if (t.status === 'done') return `完成（${t.chunks ?? 0} 片段）`
+  return `失败：${t.error || '未知错误'}`
+}
+
+function dismissTask(taskId) {
+  ingestTasks.value = ingestTasks.value.filter((t) => t.task_id !== taskId)
+}
+
+function startTask(r) {
+  // 202 响应 {task_id, kb_id, file}；轮询后行内字段与后端任务行（source/id）对齐
+  ingestTasks.value.unshift({ task_id: r.task_id, source: r.file, status: 'queued', total_pages: 0, done_pages: 0, chunks: null, error: '' })
+  ensurePolling()
+}
+
+function ensurePolling() {
+  if (!pollTimer) pollTimer = setInterval(pollTasks, POLL_MS)
+}
+
+function stopPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+}
+
+async function pollTasks() {
+  const active = ingestTasks.value.filter(isActive)
+  if (!active.length) { stopPolling(); return }
+  try {
+    const rows = await Promise.all(active.map((t) => getIngestTask(t.task_id)))
+    rows.forEach((row, i) => {
+      const local = ingestTasks.value.find((t) => t.task_id === active[i].task_id)
+      if (local) Object.assign(local, row)
+    })
+  } catch (e) {
+    error.value = e.message
+    stopPolling()
+    return
+  }
+  if (!ingestTasks.value.some(isActive)) {
+    stopPolling()
+    await Promise.all([loadDocs(current.value), load()])
+  }
+}
+
+async function restoreActiveTasks(id) {
+  try {
+    const { tasks } = await listActiveIngestTasks(id)
+    if (current.value !== id) return
+    ingestTasks.value = (tasks || []).map((t) => ({ ...t, task_id: t.id }))
+    if (ingestTasks.value.length) ensurePolling()
+  } catch { /* 恢复进行中任务失败不阻断页面 */ }
+}
+
+onBeforeUnmount(stopPolling)
 
 async function loadDocs(id) {
   if (!id) { docs.value = []; return }
@@ -313,6 +420,27 @@ async function loadDocs(id) {
     loadingDocs.value = false
   }
 }
+
+// 分片预览
+const previewDoc = ref('')
+const previewChunks = ref([])
+const previewLoading = ref(false)
+
+async function openPreview(file) {
+  previewDoc.value = file
+  previewChunks.value = []
+  previewLoading.value = true
+  error.value = ''
+  try {
+    previewChunks.value = (await listChunks(current.value, file)).chunks || []
+  } catch (e) {
+    error.value = e.message
+  } finally {
+    previewLoading.value = false
+  }
+}
+
+function closePreview() { previewDoc.value = '' }
 
 async function doDeleteDoc(file) {
   if (!confirm(`确认删除文档 "${file}"？该操作不可恢复。`)) return
@@ -371,8 +499,7 @@ async function doUpload(e) {
   msg.value = ''
   try {
     const r = await uploadDoc(current.value, file)
-    msg.value = `已入库：${r.file}（${r.chunks} 个片段）`
-    await Promise.all([loadDocs(current.value), load()])
+    startTask(r)  // 202 建任务，进度经轮询展示（完成/失败后自动刷新文档列表）
   } catch (err) {
     error.value = err.message
   } finally {
@@ -403,21 +530,14 @@ async function doSearch() {
   }
 }
 
-// 重新入库：删旧片段，按当前分片策略从留档原文件重建
-const reingesting = ref('')
-
+// 重新入库：异步任务（worker 成功后才删旧建新，失败保留原片段）
 async function doReingest(file) {
   if (!confirm(`确认重新入库 "${file}"？将删除现有片段并按当前分片策略重建。`)) return
-  reingesting.value = file
   error.value = ''
   try {
-    const r = await reingestDocument(current.value, file)
-    msg.value = `已重新入库 ${file}：${r.chunks} 个片段。`
-    await loadDocs(current.value)
+    startTask(await reingestDocument(current.value, file))
   } catch (e) {
     error.value = e.message
-  } finally {
-    reingesting.value = ''
   }
 }
 
@@ -528,6 +648,39 @@ onMounted(load)
 .head-left h2 { margin: 0; font-size: 18px; }
 .doc-panel { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--panel); padding: 4px 14px 8px; }
 .doc-title { margin: 8px 0 4px; font-size: 13px; color: var(--muted); font-weight: 600; }
+
+.ingest-panel { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--panel); padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; }
+.ingest-row { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.ingest-file { font-weight: 600; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ingest-ok { color: var(--primary-strong); }
+.ingest-err { color: #c0392b; }
+
+.modal-mask {
+  position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.45);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal {
+  width: min(760px, 92vw); max-height: 82vh; display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg);
+}
+.modal-head {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border);
+}
+.modal-head h3 { margin: 0; font-size: 14px; }
+.modal-body { overflow-y: auto; padding: 12px 16px; }
+.chunk-item {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  margin-bottom: 10px; overflow: hidden;
+}
+.chunk-head {
+  padding: 6px 10px; font-size: 12px; color: var(--muted);
+  background: var(--panel-hover); border-bottom: 1px solid var(--border);
+}
+.chunk-text {
+  margin: 0; padding: 10px 12px; font-size: 12.5px; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word; font-family: inherit;
+}
 .search { display: flex; gap: 8px; }
 .search input { flex: 1; }
 .results { display: flex; flex-direction: column; gap: 12px; }

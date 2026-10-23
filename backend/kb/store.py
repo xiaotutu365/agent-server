@@ -3,7 +3,7 @@
 from qdrant_client import QdrantClient, models
 
 import kb.config as cfg
-import kb.settings as settings
+import kb.embed as embed
 
 
 _client = None
@@ -36,7 +36,7 @@ def get_client() -> QdrantClient:
 def _vectors_config():
     return {
         cfg.DENSE_NAME: models.VectorParams(
-            size=settings.get_settings()["embedding_dim"], distance=models.Distance.COSINE
+            size=embed.effective_dim(), distance=models.Distance.COSINE
         )
     }
 
@@ -158,6 +158,31 @@ def get_chunk(kb_id: str, source: str, chunk_idx: int) -> dict | None:
         "chunk_idx": payload.get("chunk_idx", chunk_idx),
         "text": payload.get("text") or "",
     }
+
+
+def list_chunks(kb_id: str, source: str) -> list | None:
+    """列出某文档全部片段（按 chunk_idx 升序）：[{chunk_idx, text, size_chars}]。库不存在返回 None。"""
+    client = get_client()
+    name = cfg.collection_name(kb_id)
+    if not client.collection_exists(collection_name=name):
+        return None
+    out: list = []
+    offset = None
+    while True:
+        points, offset = client.scroll(
+            collection_name=name,
+            scroll_filter=_source_filter(source),
+            with_payload=["text", "chunk_idx"],
+            limit=256,
+            offset=offset,
+        )
+        for p in points:
+            pl = p.payload or {}
+            text = pl.get("text") or ""
+            out.append({"chunk_idx": pl.get("chunk_idx", 0), "text": text, "size_chars": len(text)})
+        if offset is None:
+            break
+    return sorted(out, key=lambda c: c["chunk_idx"])
 
 
 def delete_document(kb_id: str, source: str) -> dict:

@@ -27,3 +27,38 @@
   - 验证：curl 实测——线性 done、人审暂停 pending/outputs 可见、跨进程恢复（重启后 resume→done）、SSE 快照+历史回放+实时跟随、rejected 回环二次人审、max_revisions=1 二次 rejected 守卫 failed（error 落库）
 
 ## Checkpoint 2：全量测试 209 绿 + 端到端通过，向用户汇报 M1 完成 ✅
+
+---
+
+# Todo: flow-config M2 前端（spec 3.5）
+
+## Phase 3: 管理页
+
+- [x] T6 api/flows.js + FlowView 管理页（M）
+  - 涉及：frontend/src/api/flows.js（新建）、frontend/src/views/FlowView.vue（新建）、router/index.js、AdminLayout.vue
+  - 验收：列表展示 name/version/更新时间；新建/编辑弹窗（name + definition JSON textarea），非法 JSON 前端拦截、后端 400 detail 展示；删除有确认
+  - 验证：浏览器实测 CRUD 全流程 + 非法 JSON 拦截（CP3）
+
+## Phase 4: 运行页与人审
+
+- [x] T7 FlowRunView 发起 + 实例列表 + SSE 时间线（M）
+  - 涉及：frontend/src/api/flows.js（扩展 SSE）、frontend/src/views/FlowRunView.vue（新建）、router/index.js
+  - 验收：选流程 + 输入 JSON 发起；实例列表状态徽章/当前节点；详情页 SSE 逐节点 flow_step/flow_status 时间线，done/failed/cancelled 收尾
+  - 验证：浏览器实测发起→逐节点可见→done（CP4 前半）
+
+- [x] T8 人审交互 + 取消（S）
+  - 涉及：frontend/src/views/FlowRunView.vue
+  - 验收：waiting_human 时展示 pending.prompt + 已产出 outputs；批准/拒绝(+意见) POST resume `{"decision","comment"}`；rejected 回环可二次审批；取消按钮生效
+  - 验证：浏览器实测人审闭环（CP4 后半）
+
+## Checkpoint 3：浏览器实测 CRUD + 非法 JSON 前端拦截 + 后端 400 detail 就地展示 + 删除确认，console 无 error ✅
+
+## Checkpoint 4：浏览器实测全链路 ✅——发起→SSE 逐节点→等待审批→拒绝(+意见)回环修订→二次审批→批准→publish→done+final 产出；第二条实例取消生效（已取消）；console 无业务 error
+
+## Phase 5: 回归验收
+
+- [x] T9 端到端示例流程 + 全量回归（S）
+  - 验收：页面配置「llm 生成→human 审批→llm 修订回环→done」示例流程并全链路跑通；backend 全量 pytest 绿
+  - 验证：browser E2E ✅ + pytest 209 passed ✅
+
+## Checkpoint 5：M2 前端完成（CP3/CP4/CP5 全过），待用户验收
